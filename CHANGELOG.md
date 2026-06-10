@@ -37,6 +37,11 @@ inward. No vendor, network, token, or business-schema names in the core.
 - **EVM testnet smoke tests** (`SkippableFact`, env-gated) and a `chains/evm` Hardhat CI job.
 - **Audit dossier** ([`docs/security-audit-readiness.md`](docs/security-audit-readiness.md)): scope,
   threat model, addressed items, known limitations, and deterministic test vectors.
+- **NuGet packaging + Trusted Publishing**: product packages are packable with shared metadata
+  (`src/Directory.Build.props`/`.targets`), symbols (`snupkg`), and embedded README. A
+  `.github/workflows/publish.yml` publishes to nuget.org via Trusted Publishing (OIDC, no stored
+  API key). Package IDs use the owner-scoped, reservable **`Sagynbaev.`** prefix (the bare
+  `Tessera`/`Tessera.*` IDs are owned by other authors); assembly names and namespaces stay `Tessera.*`.
 
 ### Changed
 

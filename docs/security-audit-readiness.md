@@ -89,6 +89,6 @@ Auditors can reproduce these:
 ## Deferred (write-down, to finish later)
 
 - Engage an external cryptography auditor for `Tessera.Cryptography`.
-- Rebuild + extend the Solana program for full cross-chain parity (limitation 3).
-- NuGet packaging: all packages are currently `IsPackable=false`; wiring real package metadata +
-  signing is a release-engineering task, not yet done.
+- Rebuild + extend the Solana program for full cross-chain parity (limitation 2).
+- Reserve the `Sagynbaev.*` NuGet ID prefix and add `NUGET_USER` + the trusted-publishing policy on
+  nuget.org (see README), then cut the first tagged release.

@@ -1,0 +1,84 @@
+name: Publish to NuGet
+
+# Publishes the Tessera packages to nuget.org using Trusted Publishing (OIDC) — no long-lived
+# API key is stored. nuget.org issues a short-lived key (valid 1h) to this workflow after verifying
+# the GitHub OIDC token against a trusted-publishing policy you configure on nuget.org:
+#   Repository Owner : asagynbaev
+#   Repository       : Tessera
+#   Workflow File    : publish.yml
+# The only secret needed is NUGET_USER = your nuget.org username (profile name, NOT email).
+#
+# Cut a release by pushing a tag, e.g.:  git tag v3.1.0 && git push origin v3.1.0
+# Or run manually via the Actions tab (workflow_dispatch) and enter the version.
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g. 3.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # required: GitHub OIDC token issuance for Trusted Publishing
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0'
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            v="${{ github.event.inputs.version }}"
+          else
+            v="${GITHUB_REF_NAME#v}"
+          fi
+          echo "value=$v" >> "$GITHUB_OUTPUT"
+          echo "Publishing version $v"
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build -c Release --no-restore -p:Version=${{ steps.ver.outputs.value }}
+
+      - name: Test
+        run: dotnet test -c Release --no-build --verbosity normal
+
+      - name: Pack
+        run: >
+          dotnet pack -c Release --no-build
+          -p:Version=${{ steps.ver.outputs.value }}
+          -p:PackageVersion=${{ steps.ver.outputs.value }}
+          -p:ContinuousIntegrationBuild=true
+          -o ${{ runner.temp }}/nupkgs
+
+      # Trusted Publishing: exchange the OIDC token for a short-lived nuget.org API key.
+      # Request it right before pushing — the key is only valid for 1 hour.
+      - name: NuGet login (OIDC → short-lived API key)
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      - name: Push packages
+        run: >
+          dotnet nuget push "${{ runner.temp }}/nupkgs/*.nupkg"
+          --api-key ${{ steps.login.outputs.NUGET_API_KEY }}
+          --source https://api.nuget.org/v3/index.json
+          --skip-duplicate

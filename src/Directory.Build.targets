@@ -1,0 +1,14 @@
+<Project>
+
+  <!--
+    Make the product packages under src/ packable, overriding the per-project
+    <IsPackable>false</IsPackable> defaults. This file is imported AFTER each .csproj, so it wins.
+
+    Test projects are NEVER packed: excluded by IsTestProject=true OR a project name ending in
+    ".Tests" (belt-and-suspenders, so a test project that forgot IsTestProject is still excluded).
+  -->
+  <PropertyGroup Condition="'$(IsTestProject)' != 'true' AND !$(MSBuildProjectName.EndsWith('.Tests'))">
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,39 @@
+<Project>
+
+  <!--
+    Shared NuGet packaging metadata for the Tessera product packages under src/.
+
+    Package IDs are prefixed "Sagynbaev." (an owner-scoped, reservable prefix) because the bare
+    "Tessera" and parts of "Tessera.*" are already owned by other authors on nuget.org. Only the
+    published package ID is prefixed — AssemblyName and code namespaces stay "Tessera.*", so
+    consumers still write `using Tessera.Sdk;` after `dotnet add package Sagynbaev.Tessera.Sdk`.
+
+    Packability is decided in Directory.Build.targets (test projects are never packed).
+    The release version is supplied by the publish workflow (-p:Version from the git tag).
+  -->
+  <PropertyGroup>
+    <PackageId>Sagynbaev.$(MSBuildProjectName)</PackageId>
+    <Authors>Azimbek Sagynbaev</Authors>
+    <Company>Azimbek Sagynbaev</Company>
+    <Product>Tessera</Product>
+    <Copyright>Copyright © Azimbek Sagynbaev</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/asagynbaev/Tessera</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/asagynbaev/Tessera</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>did;decentralized-identity;verifiable-credentials;attestations;selective-disclosure;bulletproofs;zero-knowledge;pedersen-commitment;secp256k1;evm;solana;privacy;dotnet</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+  <!-- Ship the repo README inside every package (harmless for non-packable projects). -->
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)..\README.md" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
+
+</Project>

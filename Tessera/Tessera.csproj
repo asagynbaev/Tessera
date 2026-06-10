@@ -4,7 +4,10 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <PackageVersion>3.0.0</PackageVersion>
+    <!-- "Tessera" / "Tessera.*" IDs are owned by other authors on nuget.org; publish under the
+         owner-scoped, reservable "Sagynbaev." prefix. AssemblyName stays "Tessera". Version is
+         supplied by the publish workflow (-p:Version / -p:PackageVersion from the git tag). -->
+    <PackageId>Sagynbaev.Tessera</PackageId>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageProjectUrl>https://github.com/asagynbaev/Tessera</PackageProjectUrl>
     <RepositoryUrl>https://github.com/asagynbaev/Tessera</RepositoryUrl>

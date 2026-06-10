@@ -6,8 +6,8 @@ proofs over committed values, and multi-chain anchoring — chain-agnostic by de
 Plug in any network by implementing `IChainAnchor`. Solana, Stellar, and generic EVM
 adapters included — plus generic building blocks for permissioned EVM tokens gated by identity.
 
-[![NuGet](https://img.shields.io/nuget/v/Tessera)](https://www.nuget.org/packages/Tessera)
-[![NuGet Downloads](https://img.shields.io/nuget/dt/Tessera)](https://www.nuget.org/packages/Tessera)
+[![NuGet](https://img.shields.io/nuget/v/Sagynbaev.Tessera)](https://www.nuget.org/packages/Sagynbaev.Tessera)
+[![NuGet Downloads](https://img.shields.io/nuget/dt/Sagynbaev.Tessera)](https://www.nuget.org/packages/Sagynbaev.Tessera)
 [![Build](https://github.com/asagynbaev/Tessera/actions/workflows/dotnet.yml/badge.svg)](https://github.com/asagynbaev/Tessera/actions/workflows/dotnet.yml)
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4)](https://dotnet.microsoft.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -31,7 +31,10 @@ adapters included — plus generic building blocks for permissioned EVM tokens g
 
 ## Packages
 
-| Package | Purpose |
+Published on nuget.org under the `Sagynbaev.` prefix (e.g. the `Tessera.Sdk` assembly ships as
+the `Sagynbaev.Tessera.Sdk` package); namespaces remain `Tessera.*`.
+
+| Package (assembly) | Purpose |
 |---|---|
 | `Tessera.Sdk` | **Entry point for most consumers.** High-level `Holder`, `Issuer`, `Verifier` facades. |
 | `Tessera.Core` | `DidId`, `Base58`. Zero external dependencies. |
@@ -91,13 +94,17 @@ attestation flow: holder, issuer, verifier.
 
 ### Install
 
+> **Package IDs are prefixed `Sagynbaev.`** on nuget.org (the bare `Tessera`/`Tessera.*` IDs are
+> owned by other authors). The assembly names and namespaces are unchanged — you still write
+> `using Tessera.Sdk;`. The single meta-package is [`Sagynbaev.Tessera`](https://www.nuget.org/packages/Sagynbaev.Tessera).
+
 ```bash
-dotnet add package Tessera.Sdk
-dotnet add package Tessera.Signing
+dotnet add package Sagynbaev.Tessera.Sdk
+dotnet add package Sagynbaev.Tessera.Signing
 # pick the chain adapter you need:
-dotnet add package Tessera.Chains.Solana
+dotnet add package Sagynbaev.Tessera.Chains.Solana   # or Sagynbaev.Tessera.Chains.Evm
 # pick a store (or use the in-memory one for tests):
-dotnet add package Tessera.EntityFrameworkCore
+dotnet add package Sagynbaev.Tessera.EntityFrameworkCore
 ```
 
 ### Holder side — create a DID, accept an attestation, present it
