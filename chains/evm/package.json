@@ -10,7 +10,7 @@
     "deploy:bnbtestnet": "hardhat run scripts/deploy.js --network bnbTestnet"
   },
   "devDependencies": {
-    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@nomicfoundation/hardhat-toolbox": "^7.0.0",
     "hardhat": "^2.22.0"
   }
 }
