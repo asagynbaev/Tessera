@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Tessera.Chains.Evm</RootNamespace>
+    <AssemblyName>Tessera.Chains.Evm</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <Description>Generic EVM implementation of IChainAnchor. Drives the chains/evm IdentityRegistry contract via Nethereum on any EVM network (chainId/RPC are configuration).</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Tessera.Chains.Abstractions\Tessera.Chains.Abstractions.csproj" />
+    <ProjectReference Include="..\Tessera.Core\Tessera.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Tessera.Chains.Evm.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Nethereum.Web3" Version="6.1.0" />
+  </ItemGroup>
+
+</Project>

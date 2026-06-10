@@ -38,6 +38,8 @@ public sealed record AttestationSignature
 
 /// <summary>
 /// Well-known attestation type identifiers. Deliberately generic and identity-oriented.
+/// Domain- and vendor-specific types (a country's property registry, a named KYC provider's
+/// tiers, ...) are NOT defined here — callers register those through <see cref="SchemaRegistry"/>.
 /// </summary>
 public static class AttestationTypes
 {
@@ -49,4 +51,14 @@ public static class AttestationTypes
     public const string ReputationScore = "reputation_score";
     public const string TrustedJudge = "trusted_judge";
     public const string AgentIdentity = "agent_identity";
+
+    // ── A5 narrow-generic standard types ──────────────────────────────────
+    /// <summary>Subject passed an (unspecified) KYC process. Optional <c>level</c> claim.</summary>
+    public const string KycVerified = "kyc_verified";
+
+    /// <summary>Subject's jurisdiction/residency. Requires a <c>country</c> claim (ISO-3166 alpha-2).</summary>
+    public const string Jurisdiction = "jurisdiction";
+
+    /// <summary>Subject is an accredited investor. Carries a Pedersen commitment to the income value.</summary>
+    public const string Accredited = "accredited";
 }

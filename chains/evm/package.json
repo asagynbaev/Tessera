@@ -1,0 +1,16 @@
+{
+  "name": "tessera-evm-identity-registry",
+  "version": "1.0.0",
+  "private": true,
+  "description": "EVM IdentityRegistry — on-chain anchor for the Tessera identity layer (parity with the Solana program).",
+  "scripts": {
+    "build": "hardhat compile",
+    "test": "hardhat test",
+    "export-abi": "node scripts/export-abi.js",
+    "deploy:bnbtestnet": "hardhat run scripts/deploy.js --network bnbTestnet"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "hardhat": "^2.22.0"
+  }
+}

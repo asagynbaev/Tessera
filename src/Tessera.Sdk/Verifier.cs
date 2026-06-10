@@ -87,7 +87,12 @@ public sealed class Verifier
         }
 
         // 4. Cryptographic + Merkle verification
-        return await _presVerifier.VerifyAsync(presentation, expectedRoot, ct).ConfigureAwait(false);
+        var cryptoResult = await _presVerifier.VerifyAsync(presentation, expectedRoot, ct).ConfigureAwait(false);
+        if (!cryptoResult.Valid) return cryptoResult;
+
+        // 5. Declarative rules: required attestation types + predicate requirements.
+        //    Evaluated last, only on an otherwise-valid presentation.
+        return PolicyEvaluation.EvaluateDeclarativeRules(presentation, policy);
     }
 }
 
@@ -116,4 +121,27 @@ public sealed record VerificationPolicy
     /// chain's revocation epoch has advanced past <c>AsOfRevocationEpoch</c> in the presentation.
     /// </summary>
     public bool RequireCurrentRevocationEpoch { get; init; }
+
+    /// <summary>
+    /// Attestation types the presentation must disclose. Every listed type must appear among the
+    /// disclosed attestations or verification fails with <c>missing_required_type:{type}</c>.
+    /// Empty (default) = no type requirement. Declarative — no business logic baked in.
+    /// </summary>
+    public IReadOnlyList<string> RequiredTypes { get; init; } = Array.Empty<string>();
+
+    /// <summary>
+    /// Predicate (range-proof) requirements the presentation must satisfy, e.g. "income ≥ threshold".
+    /// Each must be met by a valid disclosed <see cref="CredentialProof"/> bundle or verification fails
+    /// with <c>predicate_unsatisfied:{label}</c>. Empty (default) = no predicate requirement.
+    /// See <see cref="PredicateRequirement"/> for the soundness caveat.
+    /// </summary>
+    public IReadOnlyList<PredicateRequirement> PredicateRequirements { get; init; } = Array.Empty<PredicateRequirement>();
+
+    /// <summary>
+    /// Claim-value requirements on disclosed (issuer-signed) attestations, e.g. "the jurisdiction
+    /// attestation's <c>country</c> claim is one of {KZ}". Each must be met or verification fails
+    /// with <c>claim_unsatisfied:{type}.{key}</c>. Empty (default) = no claim requirement.
+    /// Claims are part of the signed canonical attestation, so they cannot be tampered post-issue.
+    /// </summary>
+    public IReadOnlyList<RequiredClaim> RequiredClaims { get; init; } = Array.Empty<RequiredClaim>();
 }

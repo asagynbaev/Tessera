@@ -11,7 +11,7 @@ namespace Tessera.EntityFrameworkCore;
 /// beyond the read-only resolver interface — the registry is the authoritative source for
 /// issuer onboarding.
 /// </summary>
-public sealed class EfCoreIssuerRegistry : IIssuerRegistry
+public sealed class EfCoreIssuerRegistry : IIssuerRegistry, IIssuerRegistrar
 {
     private readonly TesseraDbContext _db;
     private readonly TimeProvider _clock;

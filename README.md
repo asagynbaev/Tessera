@@ -3,7 +3,8 @@
 Privacy-preserving identity and reputation infrastructure for .NET. DIDs, signed
 attestations, selective disclosure via Merkle bundles, Bulletproof-based predicate
 proofs over committed values, and multi-chain anchoring — chain-agnostic by design.
-Plug in any network by implementing `IChainAnchor`. Solana and Stellar adapters included.
+Plug in any network by implementing `IChainAnchor`. Solana, Stellar, and generic EVM
+adapters included — plus generic building blocks for permissioned EVM tokens gated by identity.
 
 [![NuGet](https://img.shields.io/nuget/v/Tessera)](https://www.nuget.org/packages/Tessera)
 [![NuGet Downloads](https://img.shields.io/nuget/dt/Tessera)](https://www.nuget.org/packages/Tessera)
@@ -39,9 +40,12 @@ Plug in any network by implementing `IChainAnchor`. Solana and Stellar adapters 
 | `Tessera.Cryptography` | Pure-C# secp256k1, Pedersen commitments, Bulletproofs (no external deps). |
 | `Tessera.Signing` | Production Ed25519 (NSec / libsodium). Drop-in `Ed25519Verifier` and `Ed25519IssuerSigner`. |
 | `Tessera.EntityFrameworkCore` | EF Core `IDidStore` and `IIssuerRegistry` over any relational provider (Postgres, SQL Server, SQLite). |
-| `Tessera.Chains.Abstractions` | `IChainAnchor` — chain-agnostic anchor interface. |
+| `Tessera.Chains.Abstractions` | `IChainAnchor` + `IAllowlistGateway` + `DidHash` — chain-agnostic interfaces. |
 | `Tessera.Chains.Solana` | Solana adapter targeting the `identity-registry` Anchor program. |
 | `Tessera.Chains.Stellar` | Stellar adapter scaffold targeting a Soroban anchor contract. |
+| `Tessera.Chains.Evm` | Generic EVM adapter (Nethereum): `EvmChainAnchor` + `EvmAllowlistGateway`, any chainId/RPC. |
+| `Tessera.Sources.Sumsub` | Layer-2 plugin: Sumsub KYC → `kyc_verified` / `jurisdiction` attestations. |
+| `Tessera.Sources.XRoad` | Layer-2 plugin: X-Road government registry → residency / property / encumbrance. |
 
 ## Repository layout
 
@@ -203,11 +207,31 @@ DID documents, attestations, and proofs are never written on-chain.
 | Chain | Status | Code |
 |---|---|---|
 | **Solana** | Adapter complete; program needs deployment | [`chains/solana/programs/identity-registry/`](chains/solana/programs/identity-registry/) |
+| **EVM** | Adapter complete; contracts + ABI checked in | [`chains/evm/`](chains/evm/) |
 | **Stellar** | Adapter scaffold; anchor contract pending | [`chains/stellar/contracts/attestation-verifier/`](chains/stellar/contracts/attestation-verifier/) |
 
 The Solana adapter speaks to a minimal Anchor program with four instructions:
-`register_did`, `update_root`, `bump_revocation`, `register_issuer`. Off-chain
-verification stays in C#.
+`register_did`, `update_root`, `bump_revocation`, `register_issuer`. The EVM adapter
+(`Tessera.Chains.Evm`) drives the equivalent [`IdentityRegistry.sol`](chains/evm/contracts/IdentityRegistry.sol)
+on any EVM network — chainId/RPC/contract are pure configuration. Off-chain verification stays in C#.
+
+## Permissioned tokens (reference)
+
+Generic building blocks let any permissioned EVM token gate ownership on Tessera identity,
+with zero token/provider specifics in the core:
+
+- `IAllowlistGateway` + `EvmAllowlistGateway` reflect an off-chain verification decision onto an
+  on-chain transfer-restriction contract (`Add`/`Revoke`), compatible with a simple allowlist or
+  an ERC-3643/T-REX whitelist module via configuration.
+- `IssuancePipeline` turns pluggable `IAttestationSource`s (e.g. Sumsub, X-Road) into signed
+  attestations; `VerificationPolicy` declares required types + predicate (range-proof) rules.
+
+[`examples/PermissionedToken`](examples/PermissionedToken/) assembles these into the target
+scenario — a permissioned BEP-20 ([`PermissionedToken.sol`](chains/evm/contracts/PermissionedToken.sol))
+whose transfers are gated by the allowlist. Its end-to-end test walks KYC/registry onboarding →
+DID + attestations → presentation → policy → allowlist admission → token ownership, then revokes
+KYC and shows transfers are blocked. See [docs/security-audit-readiness.md](docs/security-audit-readiness.md)
+for the audit dossier and known limitations.
 
 ## v2 → v3
 

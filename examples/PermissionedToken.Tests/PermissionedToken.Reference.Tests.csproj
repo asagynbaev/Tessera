@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <Description>End-to-end test of the Layer-3 permissioned-token compliance flow: onboarding via plugins, policy verification, allowlist gating, and revocation blocking transfers.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.3.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PermissionedToken\PermissionedToken.Reference.csproj" />
+    <ProjectReference Include="..\..\src\Tessera.Sdk\Tessera.Sdk.csproj" />
+    <ProjectReference Include="..\..\src\Tessera.Attestations\Tessera.Attestations.csproj" />
+    <ProjectReference Include="..\..\src\Tessera.Signing\Tessera.Signing.csproj" />
+    <ProjectReference Include="..\..\src\Tessera.Did\Tessera.Did.csproj" />
+    <ProjectReference Include="..\..\src\Tessera.Sources.Sumsub\Tessera.Sources.Sumsub.csproj" />
+    <ProjectReference Include="..\..\src\Tessera.Sources.XRoad\Tessera.Sources.XRoad.csproj" />
+  </ItemGroup>
+
+</Project>

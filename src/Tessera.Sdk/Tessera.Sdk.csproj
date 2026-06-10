@@ -17,4 +17,8 @@
     <ProjectReference Include="..\Tessera.Chains.Abstractions\Tessera.Chains.Abstractions.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Tessera.Sdk.Tests" />
+  </ItemGroup>
+
 </Project>

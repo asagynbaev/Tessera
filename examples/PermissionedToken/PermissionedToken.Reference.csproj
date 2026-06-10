@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Tessera.Examples.PermissionedToken</RootNamespace>
+    <AssemblyName>Tessera.Examples.PermissionedToken</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <Description>Layer-3 reference (NOT product): a permissioned BEP-20 scenario assembled from Tessera layers 1-2 — KYC/registry onboarding, compliance policy, allowlist gating, and revocation that blocks transfers.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Tessera.Sdk\Tessera.Sdk.csproj" />
+    <ProjectReference Include="..\..\src\Tessera.Attestations\Tessera.Attestations.csproj" />
+    <ProjectReference Include="..\..\src\Tessera.Chains.Abstractions\Tessera.Chains.Abstractions.csproj" />
+    <ProjectReference Include="..\..\src\Tessera.Did\Tessera.Did.csproj" />
+    <ProjectReference Include="..\..\src\Tessera.Signing\Tessera.Signing.csproj" />
+    <ProjectReference Include="..\..\src\Tessera.Sources.Sumsub\Tessera.Sources.Sumsub.csproj" />
+    <ProjectReference Include="..\..\src\Tessera.Sources.XRoad\Tessera.Sources.XRoad.csproj" />
+  </ItemGroup>
+
+</Project>

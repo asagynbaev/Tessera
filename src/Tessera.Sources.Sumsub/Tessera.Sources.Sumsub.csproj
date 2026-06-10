@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Tessera.Sources.Sumsub</RootNamespace>
+    <AssemblyName>Tessera.Sources.Sumsub</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <Description>Layer-2 plugin: maps a Sumsub KYC result to Tessera AttestationDrafts (kyc_verified, jurisdiction). Implements IAttestationSource; depends only on the core.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Tessera.Attestations\Tessera.Attestations.csproj" />
+    <ProjectReference Include="..\Tessera.Core\Tessera.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Tessera.Sources.Sumsub.Tests" />
+  </ItemGroup>
+
+</Project>

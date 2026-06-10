@@ -8,7 +8,7 @@ Privacy-preserving identity and reputation infrastructure for our own product. C
 - Generic attestation envelopes (issuer-signed, type-tagged, expiring).
 - Selective-disclosure presentations with Merkle inclusion proofs.
 - A minimal on-chain anchor — Merkle root + revocation epoch — chain-agnostic via `IChainAnchor`.
-  Solana adapter complete; Stellar adapter in progress.
+  Solana and generic-EVM adapters complete; Stellar adapter in progress.
 - A from-scratch Bulletproofs-on-secp256k1 library, used for selective disclosure
   over committed values.
 
@@ -59,15 +59,25 @@ Tessera/
 │   ├── Tessera.Chains.Abstractions/        IChainAnchor + state types — chain-agnostic
 │   ├── Tessera.Chains.Solana/              Solana adapter (Solnet, identity-registry program)
 │   ├── Tessera.Chains.Solana.Tests/
+│   ├── Tessera.Chains.Evm/                 Generic EVM adapter (Nethereum) + allowlist gateway
+│   ├── Tessera.Chains.Evm.Tests/
 │   ├── Tessera.Chains.Stellar/             Stellar adapter scaffold (StellarDotnetSdk, Soroban)
-│   ├── Tessera.Sdk/                        Holder, Issuer, Verifier facades
-│   └── Tessera.Sdk.Tests/
+│   ├── Tessera.Sdk/                        Holder, Issuer, Verifier facades + IssuancePipeline
+│   ├── Tessera.Sdk.Tests/
+│   ├── Tessera.Sources.Sumsub/             Layer-2 plugin: Sumsub KYC → AttestationDrafts
+│   ├── Tessera.Sources.Sumsub.Tests/
+│   ├── Tessera.Sources.XRoad/              Layer-2 plugin: X-Road government registry → drafts
+│   └── Tessera.Sources.XRoad.Tests/
 │
 ├── chains/
 │   ├── solana/                              Anchor IdentityRegistry program (adapter: complete)
 │   │   ├── Anchor.toml
 │   │   ├── Cargo.toml
 │   │   └── programs/identity-registry/
+│   ├── evm/                                 Hardhat IdentityRegistry + Allowlist (adapter: complete)
+│   │   ├── contracts/                       IdentityRegistry.sol, Allowlist.sol, PermissionedToken.sol
+│   │   ├── abi/                             checked-in ABIs the C# adapter targets
+│   │   └── test/                            contract unit tests
 │   └── stellar/                             Soroban attestation-verifier (adapter: in progress)
 │       ├── Cargo.toml
 │       └── contracts/attestation-verifier/
@@ -77,10 +87,13 @@ Tessera/
 │
 ├── examples/
 │   ├── PrivacyApps/                         ConfidentialTransfer, SealedBidAuction, PrivateVoting
-│   └── PrivacyApps.Tests/
+│   ├── PrivacyApps.Tests/
+│   ├── PermissionedToken/                   Layer-3 reference: permissioned BEP-20 compliance flow
+│   └── PermissionedToken.Tests/             end-to-end: onboard → policy → allowlist → revocation
 │
 └── docs/
-    └── architecture.md                      ← this file
+    ├── architecture.md                      ← this file
+    └── security-audit-readiness.md          A6 audit dossier + known limitations + test vectors
 ```
 
 ## Packages and dependencies
@@ -132,6 +145,66 @@ Hard invariants:
 - `Did` and `Attestations` reference only `Core` (+ `Cryptography` for CredentialProof). They never know which chain backs anchoring.
 - Chain adapter packages implement `IChainAnchor` from `Chains.Abstractions`.
 - `Sdk` is the consumer-facing surface; lower-level packages stay accessible for advanced use.
+
+## Layering: core / plugins / reference
+
+The codebase is organized in three layers with dependencies pointing only inward:
+
+- **Layer 1 — core (generic, reusable).** Interfaces and domain-neutral implementations. No
+  provider, network, token, or business schema names. The chain adapters
+  (`Tessera.Chains.Evm`, `Tessera.Chains.Solana`) are core: they are vendor-network-agnostic
+  via configuration (chainId/RPC/contract address are config, not code).
+- **Layer 2 — plugins (satellite packages).** Concrete `IAttestationSource` implementations
+  for specific KYC providers / registries. Depend on core; replaceable without touching it.
+  Shipped: `Tessera.Sources.Sumsub` (KYC → `kyc_verified` + `jurisdiction`) and
+  `Tessera.Sources.XRoad` (government registry → `jurisdiction`/`property_right`/`encumbrance`).
+  Each takes an injectable client interface (production HTTP client + fakes for tests).
+- **Layer 3 — reference (example, not product).** `examples/PermissionedToken` assembles Layers
+  1–2 into the target scenario: a permissioned BEP-20 (`chains/evm/PermissionedToken.sol`) whose
+  transfers are gated by the `Allowlist`. The end-to-end test walks KYC/registry onboarding →
+  DID + attestations → presentation → compliance policy → allowlist admission → token ownership,
+  then revokes KYC and shows the stale presentation removes the address and blocks transfers.
+
+## Permissioned-token building blocks
+
+Generic pieces that let any permissioned EVM token gate ownership on Tessera identity, with
+zero token/provider specifics in the core:
+
+- **Generic EVM anchor** (`Tessera.Chains.Evm.EvmChainAnchor`). `IChainAnchor` over the
+  `chains/evm` `IdentityRegistry` contract via Nethereum, on any EVM network. Strict parity
+  with the Solana program: `registerDid` / `updateRoot` / `bumpRevocation` / `registerIssuer`,
+  owner-gated by `msg.sender`, roots + revocation epochs only. `DidHash.Compute` (in
+  `Tessera.Chains.Abstractions`) gives a DID the same hash on every chain. Reads retry on
+  transient RPC faults; writes are single-shot to avoid double-submission.
+- **Allowlist gateway** (`IAllowlistGateway` in abstractions; `EvmAllowlistGateway` in the EVM
+  package). Reflects an off-chain verification decision onto an on-chain transfer-restriction
+  contract: `AddAsync` / `RevokeAsync`. Contract address, network, and function names are
+  configuration, so it drives the reference `Allowlist` contract or an ERC-3643/T-REX whitelist
+  module unchanged. It never decides eligibility — the verifier/policy does.
+- **Issuance pipeline** (`Tessera.Sdk.IssuancePipeline`). Pulls `AttestationDraft`s from one or
+  more `IAttestationSource`s, signs each via the `Issuer`, and (optionally) publishes the issuer
+  to an `IIssuerRegistrar` so verifiers can resolve it. The core ships only
+  `InMemoryAttestationSource`; real provider sources are Layer-2 plugins.
+- **Composable verification policy** (`VerificationPolicy` + `PolicyEvaluation`). A declarative
+  rule set — required attestation types and predicate (range-proof) requirements — layered on
+  top of the cryptographic verification, with no business logic baked into the verifier.
+- **Standard schemas + open registry** (`AttestationTypes` + `SchemaRegistry`). Narrow-generic
+  standard types — `kyc_verified`, `jurisdiction`, `accredited` (Pedersen-committed income) — with
+  an open `SchemaRegistry` that any caller extends with custom domain types (e.g. `property_right`,
+  `encumbrance`) and validates against, with no core change.
+
+Predicate proofs are **bound to the attestation's committed attribute**: the issuer commits to a
+value as `C = v·G + r·H` in `AttestationPayload.Commitment` and hands the holder the opening; the
+holder proves `v ≥ threshold` by proving the committed value of `C − threshold·G` is non-negative
+(reusing `r`), so the proof's commitment `V == C − threshold·G`. `PolicyEvaluation` recomputes
+`C − threshold·G` from the disclosed attestation and checks it equals `V` (`CredentialProof.VerifyBound`),
+so a holder cannot attach a proof about a different value or a different attestation. Range
+requirements are **two-sided**: the bundle carries a lower proof (`value − min ≥ 0`, commitment
+`C − min·G`) and an upper proof (`max − value ≥ 0`, commitment `max·G − C`), so both bounds are
+cryptographically enforced.
+
+> **Remaining caveat (crypto audit / A6):** `Tessera.Cryptography` is a from-scratch, not-constant-time
+> implementation pending external review. See [security-audit-readiness.md](security-audit-readiness.md).
 
 ## DID method
 
