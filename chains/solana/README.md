@@ -51,4 +51,5 @@ The program ID is a placeholder (`ZkpId1111...`); generate a real keypair before
 ## C# client
 
 The C# implementation of `IChainAnchor` for Solana lives at `src/Tessera.Chains.Solana/`
-(not yet created — Week 3 of the migration roadmap).
+(complete: Borsh codec, Anchor discriminators, PDA derivation, instruction builders, account
+decoders, and env-gated devnet smoke tests). The generic EVM counterpart is `chains/evm/`.

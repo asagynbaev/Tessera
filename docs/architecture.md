@@ -121,15 +121,19 @@ Tessera/
                                                   
         ┌───────────────────────────┐
         │ Tessera.                 │
-        │ Chains.Abstractions       │  (IChainAnchor)
+        │ Chains.Abstractions       │  (IChainAnchor, IAllowlistGateway, DidHash)
         └─────────────┬─────────────┘
                       │
-            ┌─────────┴──────────┐
-            │                    │
-   ┌────────▼─────────┐  ┌───────▼──────────┐
-   │ Tessera.Chains. │  │ Tessera.Chains. │
-   │ Solana           │  │ Stellar          │
-   └──────────────────┘  └──────────────────┘
+        ┌─────────────┼─────────────────┐
+        │             │                 │
+ ┌──────▼───────┐ ┌───▼──────────┐ ┌────▼─────────┐
+ │ Tessera.    │ │ Tessera.    │ │ Tessera.    │
+ │ Chains.Solana│ │ Chains.Evm   │ │ Chains.Stellar│
+ └──────────────┘ └──────────────┘ └──────────────┘
+
+        ┌────────────────────────────────────┐
+        │ Tessera.Sources.Sumsub / .XRoad    │  (Layer-2 plugins; depend on Attestations + Core)
+        └────────────────────────────────────┘
 
         ┌────────────────────────────────────┐
         │ Tessera.EntityFrameworkCore       │  (EF Core stores; depends on Did + Attestations)

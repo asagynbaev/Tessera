@@ -54,22 +54,31 @@ Tessera/
 ├── src/
 │   ├── Tessera.Core/                    DidId, Base58
 │   ├── Tessera.Did/                     DID model + service
-│   ├── Tessera.Attestations/            Attestations + Merkle + CredentialProof
+│   ├── Tessera.Attestations/            Attestations + Merkle + CredentialProof + schema registry
 │   ├── Tessera.Cryptography/            secp256k1 + Bulletproofs
 │   ├── Tessera.Signing/                 Ed25519 (NSec)
 │   ├── Tessera.EntityFrameworkCore/     Postgres/SQL Server/SQLite stores
-│   ├── Tessera.Chains.Abstractions/     IChainAnchor
+│   ├── Tessera.Chains.Abstractions/     IChainAnchor, IAllowlistGateway, DidHash
 │   ├── Tessera.Chains.Solana/           Solana adapter (Solnet)
+│   ├── Tessera.Chains.Evm/              Generic EVM adapter (Nethereum) + allowlist gateway
 │   ├── Tessera.Chains.Stellar/          Stellar adapter scaffold
-│   └── Tessera.Sdk/                     Holder, Issuer, Verifier
+│   ├── Tessera.Sdk/                     Holder, Issuer, Verifier, IssuancePipeline, policy
+│   ├── Tessera.Sources.Sumsub/          Layer-2 plugin: Sumsub KYC
+│   └── Tessera.Sources.XRoad/           Layer-2 plugin: X-Road government registry
 │
 ├── chains/
 │   ├── solana/programs/identity-registry/   Anchor program (adapter: complete)
+│   ├── evm/                             Hardhat: IdentityRegistry, Allowlist, PermissionedToken
 │   └── stellar/contracts/attestation-verifier/  Soroban contract (adapter: in progress)
 │
+├── examples/
+│   ├── PrivacyApps/                     ConfidentialTransfer, SealedBidAuction, PrivateVoting
+│   └── PermissionedToken/               Layer-3 reference: compliance flow end-to-end
+│
 ├── Tessera/                             v2.x monolith — kept for backward compat
-├── examples/PrivacyApps/                 ConfidentialTransfer, SealedBidAuction, PrivateVoting
-└── docs/architecture.md
+└── docs/
+    ├── architecture.md                 layering, packages, on-chain/off-chain boundary
+    └── security-audit-readiness.md     audit dossier, threat model, known limitations
 ```
 
 See [docs/architecture.md](docs/architecture.md) for the on-chain/off-chain
@@ -165,16 +174,30 @@ if (!result.Valid)
 ### Predicate proof over a committed attestation value
 
 For attestations carrying a Pedersen commitment, the holder proves a predicate
-(e.g. `score ≥ 700`) without revealing the score. Bulletproofs on secp256k1,
-implemented from scratch:
+(e.g. `income ≥ 50,000`) without revealing the value. Bulletproofs on secp256k1,
+implemented from scratch. The proof is **bound** to the attestation's commitment, so it
+cannot be reused for a different value:
 
 ```csharp
 using Tessera.Attestations;
 
 var cp = new CredentialProof();
-var bundle = cp.ProveMinimum(actualValue: 85_000, minimumRequired: 50_000, label: "annual_income");
-bool valid = cp.Verify(bundle);  // verifier learns only "income >= 50,000"
+
+// Issuer commits to the value in the attestation; the holder keeps the opening.
+var (commitment, opening) = cp.CommitValue(85_000);
+var attestation = issuer.Issue(AttestationTypes.Accredited, subjectDid,
+    new AttestationPayload { Method = "payroll", Commitment = commitment });
+
+// Holder proves income ≥ 50,000, bound to that commitment.
+var bundle = cp.ProveBoundMinimum(actualValue: 85_000, minimumRequired: 50_000, opening, label: "income");
+
+// Verifier confirms the proof is valid AND about this attestation's committed value.
+bool valid = cp.VerifyBound(commitment, bundle);   // learns only "income ≥ 50,000"
 ```
+
+The verifier policy enforces this declaratively via `PredicateRequirement` (see
+[docs/architecture.md](docs/architecture.md)). The unbound `ProveMinimum`/`Verify` remain
+available as a standalone primitive but are not accepted by the policy.
 
 ## Storage
 

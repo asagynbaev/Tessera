@@ -30,6 +30,16 @@ Operations (parity with the Solana program):
 `didHash = SHA-256(utf8(did))` — identical across the C# adapter, the Solana program,
 and this contract, so a DID hashes to the same value on every backend.
 
+`contracts/Allowlist.sol` — a minimal agent-gated address allowlist / transfer-restriction
+registry (`addToAllowlist` / `removeFromAllowlist` / `isAllowed`). The C# `EvmAllowlistGateway`
+drives it (or any compatible whitelist, e.g. an ERC-3643/T-REX module) to reflect off-chain
+identity decisions on-chain.
+
+`contracts/PermissionedToken.sol` — **reference (Layer 3), not product.** A minimal permissioned
+BEP-20/ERC-20 whose transfers and mints are gated by an `Allowlist`. Removing an address blocks
+its transfers on-chain, with no token-side identity logic. Used by the
+`examples/PermissionedToken` end-to-end scenario.
+
 ## What is NOT here
 
 This contract **does not**: verify zero-knowledge proofs (Bulletproofs verification

@@ -1,5 +1,53 @@
 # Changelog
 
+## [Unreleased]
+
+Chain-agnostic core extended for permissioned-token / compliance use cases, organized as three
+layers (generic core → replaceable plugins → reference example) with dependencies pointing only
+inward. No vendor, network, token, or business-schema names in the core.
+
+### Added
+
+- **Generic EVM adapter** (`Tessera.Chains.Evm`): `EvmChainAnchor` implements `IChainAnchor` over
+  the `chains/evm` `IdentityRegistry` contract via Nethereum on any EVM network (chainId/RPC/contract
+  are configuration). `EvmAllowlistGateway` implements `IAllowlistGateway`. Reads retry on transient
+  RPC faults; writes are single-shot to avoid double-submission.
+- **EVM contracts** (`chains/evm/`, Hardhat): `IdentityRegistry.sol` (parity with the Solana program
+  + `deactivateIssuer`), `Allowlist.sol` (agent-gated transfer-restriction registry), and the Layer-3
+  reference `PermissionedToken.sol` (allowlist-gated BEP-20). ABIs checked in; C# selectors asserted
+  against the compiled ABI.
+- **Allowlist gateway abstraction** (`IAllowlistGateway`) and shared `DidHash` in
+  `Tessera.Chains.Abstractions` (a DID hashes to the same value on every backend).
+- **Issuance pipeline** (`Tessera.Sdk.IssuancePipeline`): pulls `AttestationDraft`s from pluggable
+  `IAttestationSource`s, signs each via the `Issuer`, and publishes the issuer to an
+  `IIssuerRegistrar`. Core ships `InMemoryAttestationSource` only.
+- **Composable verification policy** (`VerificationPolicy` + `PolicyEvaluation`): declarative
+  `RequiredTypes`, `RequiredClaims` (value-level gating on issuer-signed claims), and
+  `PredicateRequirements` layered on top of cryptographic verification.
+- **Standard schemas + open registry** (`SchemaRegistry`): `kyc_verified`, `jurisdiction`,
+  `accredited` (Pedersen-committed). Custom domain types register and validate without core changes.
+- **Attestation-bound predicate proofs** (`CredentialProof.CommitValue`, `ProveBoundMinimum`,
+  `ProveBoundRange`, `VerifyBound`): a range proof is bound to the attestation's own commitment
+  (`V = C − threshold·G`); range proofs are two-sided (both bounds cryptographically enforced).
+- **Layer-2 plugins**: `Tessera.Sources.Sumsub` (KYC) and `Tessera.Sources.XRoad` (government
+  registry) — `IAttestationSource` implementations with injectable clients + mock-backed tests.
+- **Layer-3 reference** (`examples/PermissionedToken`, not product): assembles the layers into the
+  permissioned-token compliance flow — onboarding → policy → allowlist admission → token ownership,
+  with revocation that blocks transfers. End-to-end test included.
+- **EVM testnet smoke tests** (`SkippableFact`, env-gated) and a `chains/evm` Hardhat CI job.
+- **Audit dossier** ([`docs/security-audit-readiness.md`](docs/security-audit-readiness.md)): scope,
+  threat model, addressed items, known limitations, and deterministic test vectors.
+
+### Changed
+
+- Predicate verification in the policy is now **bound** to the disclosed attestation's commitment;
+  the unbound `CredentialProof.Verify` remains as a standalone primitive but is not policy-accepted.
+
+### Security
+
+- Closed the predicate-soundness gap: predicate proofs can no longer be presented about an arbitrary
+  or substituted value (binding + two-sided range). `Tessera.Cryptography` still awaits external audit.
+
 ## [3.0.0] - 2026-05-13
 
 **Breaking release.** Tessera is now positioned as privacy-preserving identity and reputation infrastructure for .NET — DIDs, attestations, selective disclosure, multi-chain anchoring — rather than a generic ZKP toolkit. The v2.x monolith is replaced by a set of focused packages.
