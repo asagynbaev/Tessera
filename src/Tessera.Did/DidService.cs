@@ -26,7 +26,7 @@ public sealed class DidService
 
     /// <summary>
     /// Create a new DID derived from the controller's public key. The DID is computed
-    /// deterministically: <c>did:tessera:base58(blake2b-256(pubkey || "v1"))</c>. The caller
+    /// deterministically: <c>did:tessera:base58(sha-256(pubkey || "v1"))</c>. The caller
     /// cannot choose the identifier — this prevents squatting and ties the identifier
     /// to provable control.
     /// </summary>

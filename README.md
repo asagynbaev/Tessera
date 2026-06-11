@@ -13,6 +13,8 @@ tokens gated by identity.
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4)](https://dotnet.microsoft.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
+**Website:** <https://tessera-website-sepia.vercel.app/>
+
 ## What this is for
 
 - Binding humans to decentralized identifiers (`did:tessera:...`).
@@ -52,6 +54,10 @@ the `Sagynbaev.Tessera.Sdk` package); namespaces remain `Tessera.*`.
 | `Tessera.Sources.Sumsub` | Layer-2 plugin: Sumsub KYC → `kyc_verified` / `jurisdiction` attestations. |
 | `Tessera.Sources.XRoad` | Layer-2 plugin: X-Road government registry → residency / property / encumbrance. |
 
+> **Audit status:** `Tessera.Cryptography` is a from-scratch, **not constant-time**
+> implementation pending external review. Threat model and known limitations:
+> [docs/security-audit-readiness.md](docs/security-audit-readiness.md).
+
 ## Repository layout
 
 ```
@@ -59,6 +65,7 @@ Tessera/
 ├── src/
 │   ├── Tessera.Core/                    DidId, Base58
 │   ├── Tessera.Did/                     DID model + service
+│   ├── Tessera.Channels/                channel binding (internal, not packaged)
 │   ├── Tessera.Attestations/            Attestations + Merkle + CredentialProof + schema registry
 │   ├── Tessera.Cryptography/            secp256k1 + Bulletproofs
 │   ├── Tessera.Signing/                 Ed25519 (NSec)
@@ -243,7 +250,7 @@ DID documents, attestations, and proofs are never written on-chain.
 |---|---|---|
 | **Solana** | Adapter complete; program needs deployment | [`chains/solana/programs/identity-registry/`](chains/solana/programs/identity-registry/) |
 | **EVM** | Adapter complete; contracts + ABI checked in | [`chains/evm/`](chains/evm/) |
-| **Cardano** | Adapter complete; Aiken Plutus V3 validators (preprod) — `aiken check` green, blueprint checked in | [`chains/cardano/`](chains/cardano/) |
+| **Cardano** | Adapter complete; Aiken Plutus V3 validators (preprod) — `aiken check` green, blueprint checked in; preprod script addresses in [`chains/cardano/DEPLOYMENT.md`](chains/cardano/DEPLOYMENT.md) | [`chains/cardano/`](chains/cardano/) |
 | **Stellar** | Adapter scaffold; anchor contract pending | [`chains/stellar/contracts/attestation-verifier/`](chains/stellar/contracts/attestation-verifier/) |
 
 The Solana adapter speaks to a minimal Anchor program with four instructions:
@@ -253,8 +260,7 @@ on any EVM network — chainId/RPC/contract are pure configuration. The Cardano 
 (`Tessera.Chains.Cardano`) drives the same four operations under eUTXO via the Aiken
 [`identity-registry`](chains/cardano/contracts/identity-registry/) Plutus V3 validators
 (state-thread tokens + inline datums, preprod), with a metadata-mode fallback for demos. Off-chain
-verification stays in C#. Native **Midnight** integration (zkSNARK stack, selective disclosure on
-Midnight) is **planned**, not yet present.
+verification stays in C#. Native Midnight integration is planned — see [Roadmap](#roadmap).
 
 ## Permissioned tokens (reference)
 
@@ -286,6 +292,17 @@ they upgrade.
 | `Tessera.Integration.Stellar.*` | `Tessera.Chains.Stellar`. |
 | `Tessera.Crypto.*` | `Tessera.Cryptography`. |
 | `Tessera.Privacy.CredentialProof` | `Tessera.Attestations.CredentialProof`. |
+
+## Roadmap
+
+Planned, not yet shipped:
+
+- **Cardano mainnet** — the preprod path is live today (see the [Chains](#chains) table);
+  mainnet is the next step.
+- **External security audit of `Tessera.Cryptography`** — the audit dossier is already public
+  in [docs/security-audit-readiness.md](docs/security-audit-readiness.md).
+- **Native Midnight integration** — a zkSNARK stack with selective disclosure on Midnight.
+  Does not exist today.
 
 ## License
 
