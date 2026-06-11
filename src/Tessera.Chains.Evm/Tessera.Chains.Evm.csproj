@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <PackageReference Include="Nethereum.Web3" Version="6.1.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
   </ItemGroup>
 
 </Project>
