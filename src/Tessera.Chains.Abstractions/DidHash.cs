@@ -6,7 +6,7 @@ using Tessera.Core;
 
 /// <summary>
 /// Canonical DID-hash derivation shared by every chain anchor. A DID hashes to the
-/// same 32 bytes on every backend — Solana, EVM, Stellar — so the same identity keys
+/// same 32 bytes on every backend — Solana, EVM, Cardano, Stellar — so the same identity keys
 /// the same on-chain record regardless of which chain it is anchored to.
 /// </summary>
 /// <remarks>
