@@ -46,10 +46,10 @@ jobs:
       - name: Install Rust stable + wasm32
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-unknown-unknown
+          targets: wasm32v1-none
 
       - name: Build attestation-verifier WASM (release)
-        run: cargo build --target wasm32-unknown-unknown --release -p attestation-verifier
+        run: cargo build --target wasm32v1-none --release -p attestation-verifier
 
       - name: Run Rust contract tests
         run: cargo test -p attestation-verifier

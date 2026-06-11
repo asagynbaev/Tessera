@@ -25,7 +25,7 @@ Before you begin, ensure you have the following installed:
 
 3. **wasm32 target**
    ```bash
-   rustup target add wasm32-unknown-unknown
+   rustup target add wasm32v1-none
    ```
 
 4. **Stellar account with XLM** for testnet or mainnet
@@ -36,12 +36,12 @@ Navigate to the contract directory and build the WASM file:
 
 ```bash
 cd chains/stellar
-cargo build --target wasm32-unknown-unknown --release --package attestation-verifier
+cargo build --target wasm32v1-none --release --package attestation-verifier
 ```
 
 The compiled WASM file will be located at:
 ```
-target/wasm32-unknown-unknown/release/attestation_verifier.wasm
+target/wasm32v1-none/release/attestation_verifier.wasm
 ```
 
 ## Step 2: Optimize the WASM (Optional but Recommended)
@@ -50,12 +50,12 @@ Optimize the WASM file to reduce size and gas costs:
 
 ```bash
 stellar contract optimize \
-  --wasm target/wasm32-unknown-unknown/release/attestation_verifier.wasm
+  --wasm target/wasm32v1-none/release/attestation_verifier.wasm
 ```
 
 This creates an optimized version:
 ```
-target/wasm32-unknown-unknown/release/attestation_verifier_optimized.wasm
+target/wasm32v1-none/release/attestation_verifier_optimized.wasm
 ```
 
 ## Step 3: Configure Stellar Network
@@ -100,7 +100,7 @@ WARNING: Never commit or share your mainnet secret keys.
 
 ```bash
 stellar contract deploy \
-  --wasm target/wasm32-unknown-unknown/release/attestation_verifier.wasm \
+  --wasm target/wasm32v1-none/release/attestation_verifier.wasm \
   --source alice \
   --network testnet
 ```
@@ -116,7 +116,7 @@ CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 ```bash
 stellar contract deploy \
-  --wasm target/wasm32-unknown-unknown/release/attestation_verifier_optimized.wasm \
+  --wasm target/wasm32v1-none/release/attestation_verifier_optimized.wasm \
   --source production-key \
   --network mainnet
 ```
@@ -221,11 +221,11 @@ To upgrade an existing contract:
 
 ```bash
 # Build new version
-cargo build --target wasm32-unknown-unknown --release --package attestation-verifier
+cargo build --target wasm32v1-none --release --package attestation-verifier
 
 # Install the new WASM
 stellar contract install \
-  --wasm target/wasm32-unknown-unknown/release/attestation_verifier.wasm \
+  --wasm target/wasm32v1-none/release/attestation_verifier.wasm \
   --source alice \
   --network testnet
 ```
@@ -273,7 +273,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
-          target: wasm32-unknown-unknown
+          target: wasm32v1-none
       
       - name: Install Soroban CLI
         run: cargo install --locked stellar-cli --features opt
@@ -281,7 +281,7 @@ jobs:
       - name: Build Contract
         run: |
           cd chains/stellar
-          cargo build --target wasm32-unknown-unknown --release
+          cargo build --target wasm32v1-none --release
       
       - name: Run Tests
         run: |
@@ -291,7 +291,7 @@ jobs:
       - name: Optimize WASM
         run: |
           stellar contract optimize \
-            --wasm chains/stellar/target/wasm32-unknown-unknown/release/attestation_verifier.wasm
+            --wasm chains/stellar/target/wasm32v1-none/release/attestation_verifier.wasm
 ```
 
 ## Resources
