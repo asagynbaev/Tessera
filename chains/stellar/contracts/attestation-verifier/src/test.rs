@@ -75,7 +75,7 @@ mod test {
         let env = Env::default();
         env.mock_all_auths();
 
-        let contract_id = env.register_contract(None, ZkpVerifier);
+        let contract_id = env.register(ZkpVerifier, ());
         let client = ZkpVerifierClient::new(&env, &contract_id);
 
         let key = create_test_key(&env);
@@ -99,7 +99,7 @@ mod test {
         let env = Env::default();
         env.mock_all_auths();
 
-        let contract_id = env.register_contract(None, ZkpVerifier);
+        let contract_id = env.register(ZkpVerifier, ());
         let client = ZkpVerifierClient::new(&env, &contract_id);
 
         let key = create_test_key(&env);
@@ -123,7 +123,7 @@ mod test {
         let env = Env::default();
         env.mock_all_auths();
 
-        let contract_id = env.register_contract(None, ZkpVerifier);
+        let contract_id = env.register(ZkpVerifier, ());
         let client = ZkpVerifierClient::new(&env, &contract_id);
 
         let key = create_test_key(&env);
@@ -150,7 +150,7 @@ mod test {
         let env = Env::default();
         env.mock_all_auths();
 
-        let contract_id = env.register_contract(None, ZkpVerifier);
+        let contract_id = env.register(ZkpVerifier, ());
         let client = ZkpVerifierClient::new(&env, &contract_id);
 
         let key = create_test_key(&env);
@@ -184,7 +184,7 @@ mod test {
         let env = Env::default();
         env.mock_all_auths();
 
-        let contract_id = env.register_contract(None, ZkpVerifier);
+        let contract_id = env.register(ZkpVerifier, ());
         let client = ZkpVerifierClient::new(&env, &contract_id);
 
         let key = create_test_key(&env);
@@ -218,7 +218,7 @@ mod test {
         let env = Env::default();
         env.mock_all_auths();
 
-        let contract_id = env.register_contract(None, ZkpVerifier);
+        let contract_id = env.register(ZkpVerifier, ());
         let client = ZkpVerifierClient::new(&env, &contract_id);
 
         let key = create_test_key(&env);
@@ -267,7 +267,7 @@ mod test {
         let env = Env::default();
         env.mock_all_auths();
 
-        let contract_id = env.register_contract(None, ZkpVerifier);
+        let contract_id = env.register(ZkpVerifier, ());
         let client = ZkpVerifierClient::new(&env, &contract_id);
 
         let key = create_test_key(&env);
@@ -302,7 +302,7 @@ mod test {
         let env = Env::default();
         env.mock_all_auths();
 
-        let contract_id = env.register_contract(None, ZkpVerifier);
+        let contract_id = env.register(ZkpVerifier, ());
         let client = ZkpVerifierClient::new(&env, &contract_id);
 
         let key = create_test_key(&env);

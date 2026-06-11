@@ -33,9 +33,9 @@ to it once written.
 ## Build and deploy
 
 ```bash
-cargo build --target wasm32-unknown-unknown --release
+cargo build --target wasm32v1-none --release
 soroban contract deploy \
-    --wasm target/wasm32-unknown-unknown/release/attestation_verifier.wasm \
+    --wasm target/wasm32v1-none/release/attestation_verifier.wasm \
     --source alice \
     --network testnet
 ```

@@ -22,17 +22,17 @@ help:
 # Install prerequisites
 setup:
 	@echo "Setting up development environment..."
-	@rustup target add wasm32-unknown-unknown
+	@rustup target add wasm32v1-none
 	@cargo install --locked stellar-cli --features opt || echo "Stellar CLI already installed"
 	@echo "Setup complete"
 
 # Build contracts
 build:
 	@echo "Building contracts..."
-	@cargo build --target wasm32-unknown-unknown --release
+	@cargo build --target wasm32v1-none --release
 	@echo "Build complete"
 	@echo "WASM files:"
-	@ls -lh target/wasm32-unknown-unknown/release/*.wasm
+	@ls -lh target/wasm32v1-none/release/*.wasm
 
 # Run tests
 test:
@@ -50,10 +50,10 @@ clean:
 optimize: build
 	@echo "Optimizing contracts..."
 	@stellar contract optimize \
-		--wasm target/wasm32-unknown-unknown/release/attestation_verifier.wasm
+		--wasm target/wasm32v1-none/release/attestation_verifier.wasm
 	@echo "Optimization complete"
 	@echo "Optimized WASM:"
-	@ls -lh target/wasm32-unknown-unknown/release/attestation_verifier.wasm
+	@ls -lh target/wasm32v1-none/release/attestation_verifier.wasm
 
 # Deploy to testnet
 deploy-testnet: optimize
@@ -64,7 +64,7 @@ deploy-testnet: optimize
 		exit 1; \
 	fi
 	@CONTRACT_ID=$$(stellar contract deploy \
-		--wasm target/wasm32-unknown-unknown/release/attestation_verifier.wasm \
+		--wasm target/wasm32v1-none/release/attestation_verifier.wasm \
 		--source $(SOURCE_ACCOUNT) \
 		--network testnet); \
 	echo "Contract deployed"; \
@@ -90,7 +90,7 @@ deploy-mainnet: optimize
 	fi
 	@echo "Deploying to Stellar mainnet..."
 	@CONTRACT_ID=$$(stellar contract deploy \
-		--wasm target/wasm32-unknown-unknown/release/attestation_verifier.wasm \
+		--wasm target/wasm32v1-none/release/attestation_verifier.wasm \
 		--source $(SOURCE_ACCOUNT) \
 		--network mainnet); \
 	echo "Contract deployed to MAINNET"; \
@@ -151,7 +151,7 @@ install:
 	fi
 	@echo "Installing contract WASM..."
 	@WASM_HASH=$$(stellar contract install \
-		--wasm target/wasm32-unknown-unknown/release/attestation_verifier.wasm \
+		--wasm target/wasm32v1-none/release/attestation_verifier.wasm \
 		--source $(SOURCE_ACCOUNT) \
 		--network testnet); \
 	echo "WASM installed"; \
