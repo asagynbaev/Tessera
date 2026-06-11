@@ -10,7 +10,18 @@
     "deploy:bnbtestnet": "hardhat run scripts/deploy.js --network bnbTestnet"
   },
   "devDependencies": {
-    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@nomicfoundation/hardhat-chai-matchers": "^2.0.0",
+    "@nomicfoundation/hardhat-ethers": "^3.0.0",
+    "chai": "^4.4.0",
+    "ethers": "^6.13.0",
     "hardhat": "^2.22.0"
+  },
+  "overrides": {
+    "cookie": "^0.7.0",
+    "serialize-javascript": "^7.0.5",
+    "tmp": "^0.2.6",
+    "undici": "^6.24.0",
+    "ws": "^8.20.1",
+    "uuid": "^11.1.1"
   }
 }
