@@ -8,7 +8,8 @@ Privacy-preserving identity and reputation infrastructure for our own product. C
 - Generic attestation envelopes (issuer-signed, type-tagged, expiring).
 - Selective-disclosure presentations with Merkle inclusion proofs.
 - A minimal on-chain anchor — Merkle root + revocation epoch — chain-agnostic via `IChainAnchor`.
-  Solana and generic-EVM adapters complete; Stellar adapter in progress.
+  Solana, generic-EVM, and Cardano (Aiken / Plutus V3, preprod) adapters complete; Stellar adapter
+  in progress.
 - A from-scratch Bulletproofs-on-secp256k1 library, used for selective disclosure
   over committed values.
 
@@ -41,6 +42,41 @@ Hard rule: the chain is for **audit**, not for **storage**.
 The chain answers: *was the holder's attestation root R at revocation_epoch E, and is
 issuer X registered as active?* It does no cryptographic proof verification.
 
+### eUTXO model (Cardano)
+
+The same audit boundary holds under Cardano's eUTXO model, but the *shape* differs from
+Solana's account model. Instead of one program-owned account per DID, there is **one
+script-locked UTxO per DID**, carrying an inline datum and a unique **state-thread (beacon)
+token**. A single multi-purpose Aiken validator acts as *both* the minting policy and the
+spending validator, so `policy_id == script_hash == script-address payment credential`. The
+thread token is named by the `did_hash`; registration mints it, and `update_root` /
+`bump_revocation` spend-and-recreate the UTxO under the controller's signature, preserving the
+token and the immutable fields. The validator enforces the controller signature, monotonic
+epochs, immutable `did_hash`/`controller`, exactly one continuing output (the
+double-satisfaction guard), and token conservation.
+
+#### Solana ↔ Cardano semantics mapping
+
+| Concept | Solana (Anchor program) | Cardano (Aiken / Plutus V3) |
+|---|---|---|
+| State container | `did_anchor` PDA account | script-locked UTxO + thread token |
+| Uniqueness key | PDA seeds `[b"did", did_hash]` | beacon asset name = `did_hash` (under the validator's own policy) |
+| Owner / authority | `owner: Pubkey` in the account | `controller: VerificationKeyHash` in the datum |
+| `register_did` | `init` the PDA, set fields | `mint` redeemer `RegisterDid`: mint the beacon, create the UTxO (`epoch = 0`) |
+| `update_root` | `update_root` ix, owner-signed | `spend` redeemer `UpdateRoot { new_root }`, controller-signed |
+| `bump_revocation` | `bump_revocation` ix, `checked_add(1)` | `spend` redeemer `BumpRevocation`, `epoch_out == epoch_in + 1` |
+| `register_issuer` | `init` the issuer PDA | `mint` on the `issuer_registry` validator (immutable, issuer-signed) |
+| Mutation auth | `require_keys_eq!(owner, signer)` | `controller ∈ tx.extra_signatories` |
+| Epoch overflow | `EpochOverflow` (u64 checked) | not applicable — Plutus `Int` is arbitrary precision |
+| Anti-fork | one PDA per hash (re-init fails) | thread-token continuity: exactly one continuing output, no stray mint/burn |
+| Global uniqueness | guaranteed by the PDA | not enforceable on-chain by a single policy; the adapter reads-then-registers/updates (documented eUTXO boundary) |
+| Read path | fetch account, Borsh-decode | query the thread-token UTxO, decode the inline datum (CBOR) |
+
+The C# adapter (`Tessera.Chains.Cardano`) drives this via CardanoSharp + Blockfrost, with a
+metadata-mode fallback (root/epoch written as tx metadata) for demos where the validator flow is
+not needed. `didHash = SHA-256(utf8(did))` is identical across every backend. Native **Midnight**
+integration (zkSNARK stack, selective disclosure on Midnight) is **planned**, not yet present.
+
 ## Repository layout
 
 ```
@@ -59,6 +95,8 @@ Tessera/
 │   ├── Tessera.Chains.Abstractions/        IChainAnchor + state types — chain-agnostic
 │   ├── Tessera.Chains.Solana/              Solana adapter (Solnet, identity-registry program)
 │   ├── Tessera.Chains.Solana.Tests/
+│   ├── Tessera.Chains.Cardano/             Cardano adapter (CardanoSharp + Blockfrost, Aiken Plutus V3)
+│   ├── Tessera.Chains.Cardano.Tests/
 │   ├── Tessera.Chains.Evm/                 Generic EVM adapter (Nethereum) + allowlist gateway
 │   ├── Tessera.Chains.Evm.Tests/
 │   ├── Tessera.Chains.Stellar/             Stellar adapter scaffold (StellarDotnetSdk, Soroban)
@@ -78,6 +116,9 @@ Tessera/
 │   │   ├── contracts/                       IdentityRegistry.sol, Allowlist.sol, PermissionedToken.sol
 │   │   ├── abi/                             checked-in ABIs the C# adapter targets
 │   │   └── test/                            contract unit tests
+│   ├── cardano/                             Aiken identity-registry (Plutus V3, preprod; adapter: complete)
+│   │   ├── Makefile  README.md  DEPLOYMENT.md
+│   │   └── contracts/identity-registry/     validators + plutus.json blueprint (checked in)
 │   └── stellar/                             Soroban attestation-verifier (adapter: in progress)
 │       ├── Cargo.toml
 │       └── contracts/attestation-verifier/
@@ -89,7 +130,8 @@ Tessera/
 │   ├── PrivacyApps/                         ConfidentialTransfer, SealedBidAuction, PrivateVoting
 │   ├── PrivacyApps.Tests/
 │   ├── PermissionedToken/                   Layer-3 reference: permissioned BEP-20 compliance flow
-│   └── PermissionedToken.Tests/             end-to-end: onboard → policy → allowlist → revocation
+│   ├── PermissionedToken.Tests/             end-to-end: onboard → policy → allowlist → revocation
+│   └── CardanoCreditLine/                   income attestation → anchor on Cardano preprod → verify
 │
 └── docs/
     ├── architecture.md                      ← this file
@@ -126,10 +168,11 @@ Tessera/
                       │
         ┌─────────────┼─────────────────┐
         │             │                 │
- ┌──────▼───────┐ ┌───▼──────────┐ ┌────▼─────────┐
- │ Tessera.    │ │ Tessera.    │ │ Tessera.    │
- │ Chains.Solana│ │ Chains.Evm   │ │ Chains.Stellar│
- └──────────────┘ └──────────────┘ └──────────────┘
+ ┌──────▼───────┐ ┌───▼──────────┐ ┌────▼──────────┐ ┌────▼─────────┐
+ │ Tessera.    │ │ Tessera.    │ │ Tessera.     │ │ Tessera.    │
+ │ Chains.Solana│ │ Chains.Evm   │ │ Chains.Cardano│ │ Chains.Stellar│
+ └──────────────┘ └──────────────┘ └───────────────┘ └──────────────┘
+                  (Cardano: CardanoSharp + Blockfrost, Aiken Plutus V3)
 
         ┌────────────────────────────────────┐
         │ Tessera.Sources.Sumsub / .XRoad    │  (Layer-2 plugins; depend on Attestations + Core)
@@ -156,8 +199,8 @@ The codebase is organized in three layers with dependencies pointing only inward
 
 - **Layer 1 — core (generic, reusable).** Interfaces and domain-neutral implementations. No
   provider, network, token, or business schema names. The chain adapters
-  (`Tessera.Chains.Evm`, `Tessera.Chains.Solana`) are core: they are vendor-network-agnostic
-  via configuration (chainId/RPC/contract address are config, not code).
+  (`Tessera.Chains.Evm`, `Tessera.Chains.Solana`, `Tessera.Chains.Cardano`) are core: they are
+  vendor-network-agnostic via configuration (chainId/RPC/network/contract are config, not code).
 - **Layer 2 — plugins (satellite packages).** Concrete `IAttestationSource` implementations
   for specific KYC providers / registries. Depend on core; replaceable without touching it.
   Shipped: `Tessera.Sources.Sumsub` (KYC → `kyc_verified` + `jurisdiction`) and
