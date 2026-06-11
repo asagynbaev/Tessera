@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Tessera.Chains.Midnight</RootNamespace>
+    <AssemblyName>Tessera.Chains.Midnight</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <Description>Midnight implementation of IChainAnchor — scaffold. The Compact contract and transaction layer are pending; reads return "no anchor" and writes throw NotSupported. See the package README.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Tessera.Chains.Abstractions\Tessera.Chains.Abstractions.csproj" />
+  </ItemGroup>
+
+</Project>
