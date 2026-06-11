@@ -6,7 +6,7 @@ members = [
 
 [workspace.dependencies]
 # Pin minor series for reproducible builds; see https://crates.io/crates/soroban-sdk
-soroban-sdk = "25.3"
+soroban-sdk = "26.1"
 
 [profile.release]
 opt-level = "z"
