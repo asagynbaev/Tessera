@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Tessera.Chains.Cardano</RootNamespace>
+    <AssemblyName>Tessera.Chains.Cardano</AssemblyName>
+    <Description>Cardano adapter implementing IChainAnchor: anchors Merkle attestation roots and revocation epochs on Cardano (preprod) via Aiken / Plutus V3 validators (Validator mode) or transaction metadata (Metadata mode). Built on CardanoSharp + Blockfrost.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CardanoSharp.Wallet" Version="5.1.0" />
+    <!-- Microsoft BCL CBOR — used for Plutus V3 datum decoding and the Conway witness /
+         script-data-hash assembly that CardanoSharp 5.1.0 (Babbage-era) does not emit. -->
+    <PackageReference Include="System.Formats.Cbor" Version="8.0.0" />
+    <!-- Pin System.Text.Json to the security-patched 8.0.x, matching the other adapters. -->
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Tessera.Chains.Abstractions\Tessera.Chains.Abstractions.csproj" />
+    <ProjectReference Include="..\Tessera.Core\Tessera.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Ship the compiled validator blueprint so the adapter derives the script
+         address / policy id at runtime with no external configuration. -->
+    <EmbeddedResource Include="..\..\chains\cardano\contracts\identity-registry\plutus.json">
+      <LogicalName>Tessera.Chains.Cardano.plutus.json</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Tessera.Chains.Cardano.Tests" />
+  </ItemGroup>
+
+</Project>

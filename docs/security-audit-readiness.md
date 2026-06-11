@@ -10,10 +10,14 @@ deterministic test artifacts that pin behavior, and records what is explicitly d
    - `Secp256k1/` — `FieldElement`, `Scalar`, `Point`, `Generators` (curve arithmetic).
    - `PedersenCommitment` — `C = v·G + r·H`.
    - `Bulletproofs/` — `RangeProof`, `InnerProductProof`, `Transcript` (Fiat–Shamir).
-2. **On-chain anchors** — `chains/solana` (Anchor) and `chains/evm`
-   (`IdentityRegistry.sol`, `Allowlist.sol`, reference `PermissionedToken.sol`).
-3. **EVM adapter** — `Tessera.Chains.Evm` (`EvmChainAnchor`, `EvmAllowlistGateway`):
-   ABI parity, idempotency/race handling, retry classification, single-shot writes.
+2. **On-chain anchors** — `chains/solana` (Anchor), `chains/evm`
+   (`IdentityRegistry.sol`, `Allowlist.sol`, reference `PermissionedToken.sol`), and
+   `chains/cardano` (Aiken / Plutus V3 `identity_anchor` + `issuer_registry`).
+3. **Chain adapters** — `Tessera.Chains.Evm` (`EvmChainAnchor`, `EvmAllowlistGateway`): ABI parity,
+   idempotency/race handling, retry classification, single-shot writes. `Tessera.Chains.Cardano`
+   (`CardanoChainAnchor`): hand-built Conway / Plutus V3 CBOR (language views, map-form redeemers,
+   script-data hash, V3 script witness), single-shot writes; script hash / address / datum CBOR
+   cross-checked against the Aiken blueprint.
 4. **Verification path** — `AttestationVerifier`, `PresentationVerifier`,
    `Tessera.Sdk.Verifier`, and the declarative `VerificationPolicy` / `PolicyEvaluation`.
 
@@ -62,6 +66,14 @@ proof verification on-chain. Auditors should confirm no code path writes anythin
 2. **Solana ↔ EVM parity gap.** The Solana program lacks an issuer-registered event, idempotent
    issuer re-registration, and a `deactivate_issuer` instruction that the EVM contract has.
    Rebuilding the Anchor program requires the Anchor toolchain (not in the build environment).
+3. **Cardano Validator-mode transaction assembly is offline-verified but not yet validated on-chain.**
+   Because CardanoSharp 5.1.0 predates Plutus V3, the Conway / V3 transaction (script-data hash,
+   execution-unit budgeting, witness layout) is hand-built with `System.Formats.Cbor`. The script
+   hash / address / datum / redeemer CBOR are pinned by golden vectors and cross-checked against the
+   Aiken blueprint, but a live preprod `register → update → bump` has not yet been run (gated on
+   funding a preprod wallet). Do not rely on Validator mode in production until that live run confirms
+   the script-data hash + ex-unit budgeting end-to-end. The Aiken validators themselves are covered
+   by `aiken check` (18 tests); Metadata mode and all reads are independent of this gap.
 
 ## Deterministic test artifacts
 
@@ -73,7 +85,11 @@ Auditors can reproduce these:
 - `Tessera.Chains.Evm.Tests/AbiContractParityTests` — every C# function selector is asserted
   equal to `keccak256(canonicalSignature)[:4]` **and** to the compiled contract ABI
   (`chains/evm/abi/*.json`), so the adapter cannot silently drift from the contract.
-- `chains/evm` Hardhat suite + `chains/solana` Anchor tests — on-chain behavior.
+- `Tessera.Chains.Cardano.Tests` — script-address / policy-id derivation asserted equal to the Aiken
+  blueprint (`aiken blueprint policy/address`); datum/redeemer + Conway/V3 CBOR (language views,
+  map-form redeemers, script-data hash) golden vectors and round-trips; retry classification.
+- `chains/evm` Hardhat suite + `chains/solana` Anchor tests + `chains/cardano` `aiken check`
+  (18 on-chain tests) — on-chain behavior.
 - End-to-end: `Tessera.Sdk.Tests/EndToEndFlowTests` and the Layer-3
   `ComplianceFlowTests` (onboard → policy → allowlist → revocation blocks transfers).
 
@@ -90,5 +106,7 @@ Auditors can reproduce these:
 
 - Engage an external cryptography auditor for `Tessera.Cryptography`.
 - Rebuild + extend the Solana program for full cross-chain parity (limitation 2).
+- Run the live Cardano preprod `register → update → bump` and finalize the Validator-mode tx
+  builder — script-data hash + ex-unit budgeting (limitation 3).
 - Reserve the `Sagynbaev.*` NuGet ID prefix and add `NUGET_USER` + the trusted-publishing policy on
   nuget.org (see README), then cut the first tagged release.

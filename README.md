@@ -1,10 +1,11 @@
 # Tessera
 
-Privacy-preserving identity and reputation infrastructure for .NET. DIDs, signed
-attestations, selective disclosure via Merkle bundles, Bulletproof-based predicate
-proofs over committed values, and multi-chain anchoring — chain-agnostic by design.
-Plug in any network by implementing `IChainAnchor`. Solana, Stellar, and generic EVM
-adapters included — plus generic building blocks for permissioned EVM tokens gated by identity.
+Privacy-preserving, **chain-agnostic** identity and reputation infrastructure for .NET.
+DIDs, signed attestations, selective disclosure via Merkle bundles, Bulletproof-based
+predicate proofs over committed values, and on-chain anchoring of attestation roots and
+revocation epochs. Plug in any network by implementing `IChainAnchor` — **Solana, Cardano,
+EVM, and Stellar** adapters are included — plus generic building blocks for permissioned EVM
+tokens gated by identity.
 
 [![NuGet](https://img.shields.io/nuget/v/Sagynbaev.Tessera)](https://www.nuget.org/packages/Sagynbaev.Tessera)
 [![NuGet Downloads](https://img.shields.io/nuget/dt/Sagynbaev.Tessera)](https://www.nuget.org/packages/Sagynbaev.Tessera)
@@ -45,6 +46,7 @@ the `Sagynbaev.Tessera.Sdk` package); namespaces remain `Tessera.*`.
 | `Tessera.EntityFrameworkCore` | EF Core `IDidStore` and `IIssuerRegistry` over any relational provider (Postgres, SQL Server, SQLite). |
 | `Tessera.Chains.Abstractions` | `IChainAnchor` + `IAllowlistGateway` + `DidHash` — chain-agnostic interfaces. |
 | `Tessera.Chains.Solana` | Solana adapter targeting the `identity-registry` Anchor program. |
+| `Tessera.Chains.Cardano` | Cardano adapter (CardanoSharp + Blockfrost): `CardanoChainAnchor` targeting the Aiken `identity-registry` Plutus V3 validators (preprod), with a metadata-mode fallback. |
 | `Tessera.Chains.Stellar` | Stellar adapter scaffold targeting a Soroban anchor contract. |
 | `Tessera.Chains.Evm` | Generic EVM adapter (Nethereum): `EvmChainAnchor` + `EvmAllowlistGateway`, any chainId/RPC. |
 | `Tessera.Sources.Sumsub` | Layer-2 plugin: Sumsub KYC → `kyc_verified` / `jurisdiction` attestations. |
@@ -63,6 +65,7 @@ Tessera/
 │   ├── Tessera.EntityFrameworkCore/     Postgres/SQL Server/SQLite stores
 │   ├── Tessera.Chains.Abstractions/     IChainAnchor, IAllowlistGateway, DidHash
 │   ├── Tessera.Chains.Solana/           Solana adapter (Solnet)
+│   ├── Tessera.Chains.Cardano/          Cardano adapter (CardanoSharp + Blockfrost, Aiken Plutus V3)
 │   ├── Tessera.Chains.Evm/              Generic EVM adapter (Nethereum) + allowlist gateway
 │   ├── Tessera.Chains.Stellar/          Stellar adapter scaffold
 │   ├── Tessera.Sdk/                     Holder, Issuer, Verifier, IssuancePipeline, policy
@@ -72,11 +75,13 @@ Tessera/
 ├── chains/
 │   ├── solana/programs/identity-registry/   Anchor program (adapter: complete)
 │   ├── evm/                             Hardhat: IdentityRegistry, Allowlist, PermissionedToken
+│   ├── cardano/contracts/identity-registry/  Aiken validators (Plutus V3, preprod; adapter: complete)
 │   └── stellar/contracts/attestation-verifier/  Soroban contract (adapter: in progress)
 │
 ├── examples/
 │   ├── PrivacyApps/                     ConfidentialTransfer, SealedBidAuction, PrivateVoting
-│   └── PermissionedToken/               Layer-3 reference: compliance flow end-to-end
+│   ├── PermissionedToken/               Layer-3 reference: compliance flow end-to-end
+│   └── CardanoCreditLine/               Income attestation → anchor on Cardano preprod → verify
 │
 ├── Tessera/                             v2.x monolith — kept for backward compat
 └── docs/
@@ -102,7 +107,7 @@ attestation flow: holder, issuer, verifier.
 dotnet add package Sagynbaev.Tessera.Sdk
 dotnet add package Sagynbaev.Tessera.Signing
 # pick the chain adapter you need:
-dotnet add package Sagynbaev.Tessera.Chains.Solana   # or Sagynbaev.Tessera.Chains.Evm
+dotnet add package Sagynbaev.Tessera.Chains.Cardano  # or Sagynbaev.Tessera.Chains.Solana / .Chains.Evm
 # pick a store (or use the in-memory one for tests):
 dotnet add package Sagynbaev.Tessera.EntityFrameworkCore
 ```
@@ -238,12 +243,18 @@ DID documents, attestations, and proofs are never written on-chain.
 |---|---|---|
 | **Solana** | Adapter complete; program needs deployment | [`chains/solana/programs/identity-registry/`](chains/solana/programs/identity-registry/) |
 | **EVM** | Adapter complete; contracts + ABI checked in | [`chains/evm/`](chains/evm/) |
+| **Cardano** | Adapter complete; Aiken Plutus V3 validators (preprod) — `aiken check` green, blueprint checked in | [`chains/cardano/`](chains/cardano/) |
 | **Stellar** | Adapter scaffold; anchor contract pending | [`chains/stellar/contracts/attestation-verifier/`](chains/stellar/contracts/attestation-verifier/) |
 
 The Solana adapter speaks to a minimal Anchor program with four instructions:
 `register_did`, `update_root`, `bump_revocation`, `register_issuer`. The EVM adapter
 (`Tessera.Chains.Evm`) drives the equivalent [`IdentityRegistry.sol`](chains/evm/contracts/IdentityRegistry.sol)
-on any EVM network — chainId/RPC/contract are pure configuration. Off-chain verification stays in C#.
+on any EVM network — chainId/RPC/contract are pure configuration. The Cardano adapter
+(`Tessera.Chains.Cardano`) drives the same four operations under eUTXO via the Aiken
+[`identity-registry`](chains/cardano/contracts/identity-registry/) Plutus V3 validators
+(state-thread tokens + inline datums, preprod), with a metadata-mode fallback for demos. Off-chain
+verification stays in C#. Native **Midnight** integration (zkSNARK stack, selective disclosure on
+Midnight) is **planned**, not yet present.
 
 ## Permissioned tokens (reference)
 

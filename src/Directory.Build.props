@@ -22,7 +22,7 @@
     <RepositoryUrl>https://github.com/asagynbaev/Tessera</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageTags>did;decentralized-identity;verifiable-credentials;attestations;selective-disclosure;bulletproofs;zero-knowledge;pedersen-commitment;secp256k1;evm;solana;privacy;dotnet</PackageTags>
+    <PackageTags>did;decentralized-identity;verifiable-credentials;attestations;selective-disclosure;bulletproofs;zero-knowledge;pedersen-commitment;secp256k1;evm;solana;cardano;privacy;dotnet</PackageTags>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <IncludeSymbols>true</IncludeSymbols>
