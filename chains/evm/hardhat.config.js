@@ -1,4 +1,9 @@
-require("@nomicfoundation/hardhat-toolbox");
+// Minimal plugin set — only what the tests actually use (ethers v6 + chai matchers).
+// Avoids @nomicfoundation/hardhat-toolbox, whose kitchen-sink deps (eth-gas-reporter,
+// solidity-coverage, typechain, the ethers v5 tree) pulled in dozens of advisories the
+// project never exercised. Keeps Hardhat 2.x (no breaking Hardhat 3 migration).
+require("@nomicfoundation/hardhat-ethers");
+require("@nomicfoundation/hardhat-chai-matchers");
 
 /**
  * Hardhat config for the Tessera EVM IdentityRegistry.
