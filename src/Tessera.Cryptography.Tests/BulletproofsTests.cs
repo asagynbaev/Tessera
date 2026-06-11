@@ -152,6 +152,26 @@ namespace Tessera.Cryptography.Tests
 
         #endregion
 
+        #region Bitcoin balance range width (satoshis)
+
+        // The default range proof is 64-bit (Generators.DefaultN), so it holds any satoshi amount:
+        // 100 BTC ≈ 2^33, the whole 21M-BTC supply ≈ 2^51, and the long ceiling ≈ 2^63 all fit with
+        // room to spare. No clamp or scaling is needed for Bitcoin balances (see Sources.Bitcoin README).
+
+        [Theory]
+        [InlineData(10_000_000_000L)]        // 100 BTC in sats (~2^33)
+        [InlineData(9_900_000_000L)]         // 100 BTC − 1 BTC: the shifted value ProveBoundMinimum proves
+        [InlineData(2_100_000_000_000_000L)] // 21,000,000 BTC — the entire money supply (~2^51)
+        [InlineData(long.MaxValue)]          // the long ceiling (~2^63), far above any real balance
+        public void RangeProof_SatoshiAmount_FitsFullWidth(long sats)
+        {
+            var gamma = Scalar.Random();
+            var (proof, V) = RangeProof.Prove(Scalar.From(sats), gamma, Generators.DefaultN);
+            Assert.True(RangeProof.Verify(V, proof, Generators.DefaultN));
+        }
+
+        #endregion
+
         // High-level wrappers (BulletproofsProvider, CredentialProof) live in
         // Tessera.Attestations / legacy Tessera; this package tests primitives only.
     }

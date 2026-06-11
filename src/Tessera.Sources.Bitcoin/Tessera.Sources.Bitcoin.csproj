@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Tessera.Sources.Bitcoin</RootNamespace>
+    <AssemblyName>Tessera.Sources.Bitcoin</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <Description>Layer-2 plugin: turns proven control of Bitcoin addresses (BIP-137 signed challenge) into Tessera AttestationDrafts — btc_control (address count only), btc_balance and btc_hodl_age (Pedersen-committed). Esplora (mempool.space / blockstream.info) provider. Implements IAttestationSource; depends on the core + NBitcoin.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NBitcoin" Version="10.0.6" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Tessera.Attestations\Tessera.Attestations.csproj" />
+    <ProjectReference Include="..\Tessera.Core\Tessera.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Tessera.Sources.Bitcoin.Tests" />
+  </ItemGroup>
+
+</Project>
