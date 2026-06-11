@@ -82,3 +82,27 @@ jobs:
         run: |
           npm run export-abi
           git diff --exit-code abi/
+
+  cardano-contract:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: chains/cardano/contracts/identity-registry
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Aiken
+        uses: aiken-lang/setup-aiken@v1
+        with:
+          version: v1.1.21
+
+      - name: Type-check and run on-chain tests
+        run: aiken check
+
+      - name: Build blueprint
+        run: aiken build
+
+      - name: Verify checked-in blueprint is up to date
+        run: git diff --exit-code plutus.json
