@@ -8,6 +8,22 @@ inward. No vendor, network, token, or business-schema names in the core.
 
 ### Added
 
+- **Cardano adapter** (`Tessera.Chains.Cardano`): `CardanoChainAnchor` implements `IChainAnchor` on
+  Cardano (preprod) via CardanoSharp + Blockfrost, with two `AnchorMode`s — `Validator` (full Plutus
+  V3 flow against the Aiken `identity-registry` validators) and `Metadata` (transaction-metadata
+  fallback). Because CardanoSharp 5.1.0 is Babbage-era, the Conway / Plutus V3 CBOR it cannot emit
+  (language views, map-form redeemers, script-data hash, V3 script witness under key 7) is built with
+  the BCL `System.Formats.Cbor`. Pluggable `ICardanoProvider` + `BlockfrostCardanoProvider`; reads
+  retry on transient faults, writes are single-shot.
+- **Cardano contracts** (`chains/cardano/`, Aiken / Plutus V3): a multi-purpose `identity_anchor`
+  validator (minting policy + spending validator sharing one script hash) using the state-thread
+  token pattern, plus a register-only `issuer_registry`. Parity with the Solana program
+  (`register_did` / `update_root` / `bump_revocation` / `register_issuer`); `aiken check` green
+  (18 on-chain tests), `plutus.json` blueprint checked in. A `cardano-contract` CI job runs
+  `aiken check` + `aiken build` + a blueprint-up-to-date diff.
+- **CardanoCreditLine example** (`examples/CardanoCreditLine`): income attestation carrying a Pedersen
+  commitment → anchor the Merkle root on Cardano preprod (Validator mode) → Bulletproof predicate
+  (`income ≥ 50,000`) → verify the presentation against the on-chain root + revocation epoch.
 - **Generic EVM adapter** (`Tessera.Chains.Evm`): `EvmChainAnchor` implements `IChainAnchor` over
   the `chains/evm` `IdentityRegistry` contract via Nethereum on any EVM network (chainId/RPC/contract
   are configuration). `EvmAllowlistGateway` implements `IAllowlistGateway`. Reads retry on transient
