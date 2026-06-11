@@ -1,0 +1,125 @@
+# Deploying the Cardano anchor (preprod)
+
+How to compile the Aiken validators and exercise the full anchor flow on the
+**preprod** testnet from C#. The chain backend is chain-agnostic — only the
+network and the script address change between Cardano networks. If you only need
+a working backend *today*, the [Solana](../../docs/deploying-solana.md) and EVM
+adapters are also complete.
+
+> Unlike Solana (where the program is deployed once to a program id), a Plutus
+> validator is **not** "deployed" to a fixed address by an admin. Its script
+> address is a deterministic function of the compiled code. You simply build the
+> blueprint, derive the address, and start sending transactions to it. The first
+> `register_did` creates the DID's UTxO there.
+
+## Prerequisites
+
+1. **Aiken** ≥ v1.1.21 — `npm install -g @aiken-lang/aiken@1.1.21` (or `aikup`),
+   verify with `aiken --version`.
+2. **.NET 8 SDK** — for the C# adapter / example.
+3. **A Blockfrost preprod project id** — from <https://blockfrost.io> (free
+   tier). This key does reads *and* transaction submission.
+4. **A preprod wallet with test ADA** — a payment signing key whose address holds
+   a few test ADA from the faucet (fees + min-UTxO + Plutus collateral). The
+   adapter's `SigningKey` becomes the on-chain `controller`.
+
+## Step 1 — Build the blueprint
+
+```sh
+cd chains/cardano/contracts/identity-registry
+aiken check     # 18 on-chain unit tests must pass
+aiken build     # writes plutus.json (checked into the repo)
+```
+
+## Step 2 — Derive the script address and policy id
+
+```sh
+aiken blueprint policy  -m identity_anchor -v identity_anchor   # policy id == script hash
+aiken blueprint address -m identity_anchor -v identity_anchor   # preprod (testnet) script address
+```
+
+For the validators as committed:
+
+| Validator | Policy id | Preprod address |
+|---|---|---|
+| `identity_anchor` | `73f81b6b4d9a0f348391acc37f7122cdca4dcc34a219c5ae111fdd60` | `addr_test1wpelsxmtfkdq7dyrjxkvxlm3ytxu5nwvxj3pn3dwzy0a6cqcu2k9g` |
+| `issuer_registry` | `3f94e0bc7163fef7ee132215bd94eee699b3a41fa5e049d4aca884e4` | `addr_test1wqlefc9uw93laalwzv3pt0v5amnfnvayr7j7qjw54j5gfeqt2sa63` |
+
+The C# adapter derives the same values from `plutus.json` at runtime, so you do
+not need to copy them into config unless you want to.
+
+## Step 3 — Fund the controller wallet
+
+Send preprod test ADA to your payment address from the faucet:
+<https://docs.cardano.org/cardano-testnets/tools/faucet> (select **Preprod**).
+A few test ADA is plenty. Plutus transactions also need a pure-ADA UTxO for
+collateral, which the adapter selects automatically from this wallet.
+
+## Step 4 — Configure the C# adapter
+
+```csharp
+using Tessera.Chains.Cardano;
+
+var anchor = new CardanoChainAnchor(new CardanoAnchorOptions
+{
+    Network             = CardanoNetwork.Preprod,
+    BlockfrostProjectId = Environment.GetEnvironmentVariable("TESSERA_CARDANO_BLOCKFROST_KEY")!,
+    SigningKey          = Environment.GetEnvironmentVariable("TESSERA_CARDANO_SKEY")!, // payment skey
+    AnchorMode          = AnchorMode.Validator, // or AnchorMode.Metadata for the demo fallback
+});
+```
+
+`ScriptRefs` is optional — leave it null to derive the script + address + policy
+id from the blueprint shipped with the package.
+
+## Step 5 — Exercise the flow
+
+```csharp
+var did = new DidId("did:tessera:alice");
+await anchor.AnchorRootAsync(did, merkleRoot);          // register_did (first call) / update_root
+var state = await anchor.GetAnchorAsync(did);           // read back root + epoch
+await anchor.BumpRevocationAsync(did, RevocationReason.KeyRotation);
+```
+
+The runnable end-to-end sample is
+[`examples/CardanoCreditLine`](../../examples/CardanoCreditLine/) — it issues an
+income attestation, anchors the root on preprod in Validator mode, builds a
+Bulletproof predicate, and verifies the presentation against the on-chain root.
+It needs only `TESSERA_CARDANO_BLOCKFROST_KEY` and `TESSERA_CARDANO_SKEY`.
+
+## Troubleshooting
+
+- **`InsufficientFunds` / no collateral** — fund the controller address (Step 3);
+  Plutus txs need ≥ ~5 test ADA for fees + min-UTxO + collateral.
+- **`ScriptExecutionFailure`** — the datum/redeemer did not satisfy the validator.
+  Re-run `aiken check`; confirm the blueprint in the package matches
+  `plutus.json`.
+- **`not_owner` on update/bump** — the `SigningKey` is not the controller that
+  registered the DID. Owner is set at registration and is immutable (parity with
+  Solana/EVM).
+- **Reads return null right after submit** — preprod needs a block (~20s) to
+  confirm; the adapter awaits confirmation up to `ConfirmationTimeout`.
+
+## Cost
+
+Preprod test ADA is free from the faucet. Each anchor transaction costs a small
+fraction of a test ADA in fees plus the locked min-UTxO (~1.2 test ADA) for the
+anchor UTxO, returned only if the UTxO is ever spent to nothing.
+
+## Continuous integration
+
+CI compiles and tests the validators on every push (`aiken check` + `aiken
+build`, with a blueprint-up-to-date diff). The live preprod flow is an
+env-gated `SkippableFact` integration test — skipped unless
+`TESSERA_CARDANO_BLOCKFROST_KEY` / `TESSERA_CARDANO_SKEY` are set — so CI never
+needs a funded wallet.
+
+## Resources
+
+- Aiken: <https://aiken-lang.org>
+- Blockfrost API: <https://docs.blockfrost.io>
+- Preprod faucet: <https://docs.cardano.org/cardano-testnets/tools/faucet>
+
+## Support
+
+Questions: sagynbaev6@gmail.com

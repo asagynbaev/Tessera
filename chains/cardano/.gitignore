@@ -1,0 +1,4 @@
+# Aiken build artifacts (the plutus.json blueprint IS committed)
+**/build/
+**/artifacts/
+**/docs/

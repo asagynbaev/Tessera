@@ -1,0 +1,18 @@
+name = "tessera/identity-registry"
+version = "0.0.0"
+compiler = "v1.1.21"
+plutus = "v3"
+license = "MIT"
+description = "Tessera identity-registry: Plutus V3 validators anchoring Merkle attestation roots + revocation epochs on Cardano (eUTXO counterpart of the Solana identity-registry program)."
+
+[repository]
+user = "tessera"
+project = "identity-registry"
+platform = "github"
+
+[[dependencies]]
+name = "aiken-lang/stdlib"
+version = "v3.1.0"
+source = "github"
+
+[config]
