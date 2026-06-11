@@ -50,9 +50,11 @@ the `Sagynbaev.Tessera.Sdk` package); namespaces remain `Tessera.*`.
 | `Tessera.Chains.Solana` | Solana adapter targeting the `identity-registry` Anchor program. |
 | `Tessera.Chains.Cardano` | Cardano adapter (CardanoSharp + Blockfrost): `CardanoChainAnchor` targeting the Aiken `identity-registry` Plutus V3 validators (preprod), with a metadata-mode fallback. |
 | `Tessera.Chains.Stellar` | Stellar adapter scaffold targeting a Soroban anchor contract. |
+| `Tessera.Chains.Midnight` | Midnight adapter **scaffold** — Compact contract + transaction layer pending (reads report no anchor, writes throw `NotSupported`). |
 | `Tessera.Chains.Evm` | Generic EVM adapter (Nethereum): `EvmChainAnchor` + `EvmAllowlistGateway`, any chainId/RPC. |
 | `Tessera.Sources.Sumsub` | Layer-2 plugin: Sumsub KYC → `kyc_verified` / `jurisdiction` attestations. |
 | `Tessera.Sources.XRoad` | Layer-2 plugin: X-Road government registry → residency / property / encumbrance. |
+| `Tessera.Sources.Bitcoin` | Layer-2 plugin: proven control of Bitcoin addresses (BIP-137 signed challenge) → `btc_control` (address count only) + Pedersen-committed `btc_balance` / `btc_hodl_age`. Esplora (mempool.space / blockstream.info) provider. |
 
 > **Audit status:** `Tessera.Cryptography` is a from-scratch, **not constant-time**
 > implementation pending external review. Threat model and known limitations:
@@ -75,9 +77,11 @@ Tessera/
 │   ├── Tessera.Chains.Cardano/          Cardano adapter (CardanoSharp + Blockfrost, Aiken Plutus V3)
 │   ├── Tessera.Chains.Evm/              Generic EVM adapter (Nethereum) + allowlist gateway
 │   ├── Tessera.Chains.Stellar/          Stellar adapter scaffold
+│   ├── Tessera.Chains.Midnight/         Midnight adapter scaffold (Compact + tx layer pending)
 │   ├── Tessera.Sdk/                     Holder, Issuer, Verifier, IssuancePipeline, policy
 │   ├── Tessera.Sources.Sumsub/          Layer-2 plugin: Sumsub KYC
-│   └── Tessera.Sources.XRoad/           Layer-2 plugin: X-Road government registry
+│   ├── Tessera.Sources.XRoad/           Layer-2 plugin: X-Road government registry
+│   └── Tessera.Sources.Bitcoin/         Layer-2 plugin: proof of Bitcoin control + balance (NBitcoin)
 │
 ├── chains/
 │   ├── solana/programs/identity-registry/   Anchor program (adapter: complete)
@@ -88,7 +92,8 @@ Tessera/
 ├── examples/
 │   ├── PrivacyApps/                     ConfidentialTransfer, SealedBidAuction, PrivateVoting
 │   ├── PermissionedToken/               Layer-3 reference: compliance flow end-to-end
-│   └── CardanoCreditLine/               Income attestation → anchor on Cardano preprod → verify
+│   ├── CardanoCreditLine/               Income attestation → anchor on Cardano preprod → verify
+│   └── BitcoinCreditLine/               Proof of Bitcoin balance ≥ 1 BTC → anchor on Cardano → verify
 │
 ├── Tessera/                             v2.x monolith — kept for backward compat
 └── docs/
@@ -252,6 +257,7 @@ DID documents, attestations, and proofs are never written on-chain.
 | **EVM** | Adapter complete; contracts + ABI checked in | [`chains/evm/`](chains/evm/) |
 | **Cardano** | Adapter complete; Aiken Plutus V3 validators (preprod) — `aiken check` green, blueprint checked in; preprod script addresses in [`chains/cardano/DEPLOYMENT.md`](chains/cardano/DEPLOYMENT.md) | [`chains/cardano/`](chains/cardano/) |
 | **Stellar** | Adapter scaffold; anchor contract pending | [`chains/stellar/contracts/attestation-verifier/`](chains/stellar/contracts/attestation-verifier/) |
+| **Midnight** | Adapter scaffold; Compact contract + tx layer pending (mainnet is live) | [`src/Tessera.Chains.Midnight/`](src/Tessera.Chains.Midnight/) |
 
 The Solana adapter speaks to a minimal Anchor program with four instructions:
 `register_did`, `update_root`, `bump_revocation`, `register_issuer`. The EVM adapter
@@ -270,7 +276,7 @@ with zero token/provider specifics in the core:
 - `IAllowlistGateway` + `EvmAllowlistGateway` reflect an off-chain verification decision onto an
   on-chain transfer-restriction contract (`Add`/`Revoke`), compatible with a simple allowlist or
   an ERC-3643/T-REX whitelist module via configuration.
-- `IssuancePipeline` turns pluggable `IAttestationSource`s (e.g. Sumsub, X-Road) into signed
+- `IssuancePipeline` turns pluggable `IAttestationSource`s (e.g. Sumsub, X-Road, Bitcoin) into signed
   attestations; `VerificationPolicy` declares required types + predicate (range-proof) rules.
 
 [`examples/PermissionedToken`](examples/PermissionedToken/) assembles these into the target
