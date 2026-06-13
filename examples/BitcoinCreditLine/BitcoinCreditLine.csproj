@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Tessera.Examples.BitcoinCreditLine</RootNamespace>
+    <Description>Console sample: prove control of a testnet Bitcoin address (BIP-137 signed challenge), issue a btc_balance attestation with a Pedersen commitment to the confirmed balance, anchor the Merkle root on Cardano preprod, prove balance ≥ 1 BTC with a Bulletproof, and verify the presentation against the on-chain root.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NBitcoin" Version="10.0.6" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Tessera.Sdk\Tessera.Sdk.csproj" />
+    <ProjectReference Include="..\..\src\Tessera.Signing\Tessera.Signing.csproj" />
+    <ProjectReference Include="..\..\src\Tessera.Attestations\Tessera.Attestations.csproj" />
+    <ProjectReference Include="..\..\src\Tessera.Did\Tessera.Did.csproj" />
+    <ProjectReference Include="..\..\src\Tessera.Core\Tessera.Core.csproj" />
+    <ProjectReference Include="..\..\src\Tessera.Chains.Abstractions\Tessera.Chains.Abstractions.csproj" />
+    <ProjectReference Include="..\..\src\Tessera.Chains.Cardano\Tessera.Chains.Cardano.csproj" />
+    <ProjectReference Include="..\..\src\Tessera.Sources.Bitcoin\Tessera.Sources.Bitcoin.csproj" />
+  </ItemGroup>
+
+</Project>

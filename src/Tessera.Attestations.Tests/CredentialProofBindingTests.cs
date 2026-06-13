@@ -125,4 +125,35 @@ public class CredentialProofBindingTests
         Assert.NotNull(restored.UpperRangeProof);
         Assert.True(cp.VerifyBound(commitment, restored));
     }
+
+    // ── Bitcoin satoshi amounts (proof-of-Bitcoin via Sources.Bitcoin) ───────
+    //
+    // The 64-bit range proof holds any satoshi balance: 100 BTC, and even the whole 21M-BTC
+    // supply, fit far below 2^64. These are the bound proofs the btc_balance attestation drives.
+
+    [Fact]
+    public void ProveBoundMinimum_HundredBtcInSats_AboveOneBtc_VerifiesBound()
+    {
+        var cp = new CredentialProof();
+        const long hundredBtc = 10_000_000_000; // 100 BTC in sats
+        const long oneBtc = 100_000_000;        // 1 BTC threshold
+
+        var (commitment, opening) = cp.CommitValue(hundredBtc);
+        var bundle = cp.ProveBoundMinimum(hundredBtc, oneBtc, opening, "btc_balance");
+
+        Assert.True(cp.VerifyBound(commitment, bundle));
+    }
+
+    [Fact]
+    public void ProveBoundMinimum_WholeBitcoinSupplyInSats_VerifiesBound()
+    {
+        var cp = new CredentialProof();
+        const long supplySats = 2_100_000_000_000_000; // 21,000,000 BTC in sats (~2^51)
+        const long oneBtc = 100_000_000;
+
+        var (commitment, opening) = cp.CommitValue(supplySats);
+        var bundle = cp.ProveBoundMinimum(supplySats, oneBtc, opening, "btc_balance");
+
+        Assert.True(cp.VerifyBound(commitment, bundle));
+    }
 }

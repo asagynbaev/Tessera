@@ -8,6 +8,25 @@ inward. No vendor, network, token, or business-schema names in the core.
 
 ### Added
 
+- **Bitcoin attestation source** (`Tessera.Sources.Bitcoin`): turns proven control of Bitcoin
+  addresses into attestations — the basis for "private proof-of-Bitcoin". A holder proves control by
+  signing a domain-separated, anti-replay challenge (`BitcoinChallenge` + `INonceStore`); BIP-137
+  `signmessage` recovery (P2PKH / P2SH-P2WPKH / P2WPKH via NBitcoin — Taproot/BIP-322 documented as
+  unsupported) verifies it. Over the verified addresses it computes confirmed balance and
+  value-weighted holding age and emits three new attestation types — `btc_control` (address count
+  only), and Pedersen-committed `btc_balance` and `btc_hodl_age`. Pluggable `IBitcoinProvider` +
+  `EsploraBitcoinProvider` (mempool.space / blockstream.info Esplora API); reads retry on transient
+  faults. No address, txid, script, or plaintext amount ever enters an attestation payload — enforced
+  by a serialization test. The 64-bit range proof holds any satoshi balance (the whole 21M-BTC supply
+  is ≈ 2^51), so no clamp or scaling is needed.
+- **BitcoinCreditLine example** (`examples/BitcoinCreditLine`): prove control of a testnet BTC address
+  → commit the confirmed balance (Pedersen) → anchor the Merkle root on Cardano preprod → prove
+  `btc_balance ≥ 1 BTC` with a Bulletproof bound to that commitment → verify the presentation against
+  the on-chain root + revocation epoch.
+- **Midnight adapter scaffold** (`Tessera.Chains.Midnight`): `MidnightChainAnchor` implements
+  `IChainAnchor` at the Stellar scaffold's honesty level — reads report "no anchor" (null / false),
+  writes throw `NotSupported`. The Compact contract and transaction layer are roadmap; Midnight
+  mainnet is live.
 - **Cardano adapter** (`Tessera.Chains.Cardano`): `CardanoChainAnchor` implements `IChainAnchor` on
   Cardano (preprod) via CardanoSharp + Blockfrost, with two `AnchorMode`s — `Validator` (full Plutus
   V3 flow against the Aiken `identity-registry` validators) and `Metadata` (transaction-metadata
