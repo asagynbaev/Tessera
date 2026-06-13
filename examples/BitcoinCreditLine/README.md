@@ -11,8 +11,13 @@ amount, the addresses, or the UTXOs, with the proof anchored on **Cardano prepro
    (Validator mode by default; `metadata` fallback selectable by env var).
 4. The holder proves `btc_balance ≥ 1 BTC` with a Bulletproof bound to that commitment — without
    revealing the balance.
-5. A verifier checks the presentation, reads the **on-chain root + revocation epoch** back from
-   Cardano, evaluates the predicate, and prints **`proof of bitcoin verified`**.
+5. The holder **signs the presentation challenge** with their DID controller key (the binding
+   carries the 32-byte `HolderPublicKey`), proving the presenter controls the holder DID. Note this
+   is a separate signature from the BIP-137 Bitcoin control proof in step 1.
+6. A verifier checks the presentation — including the holder signature — reads the **on-chain
+   root + revocation epoch** back from Cardano (revocation is **fail-closed**:
+   `RequireCurrentRevocationEpoch` demands a reachable anchor and an exact epoch match), evaluates
+   the predicate, and prints **`proof of bitcoin verified`**.
 
 ## What is real vs simulated
 
@@ -43,8 +48,10 @@ dotnet run --project examples/BitcoinCreditLine
   [faucet](https://docs.cardano.org/cardano-testnets/tools/faucet). A cardano-cli `.skey`
   cborHex / 96-byte extended-key hex also works.
 - `TESSERA_CARDANO_ANCHOR_MODE=metadata` writes the root/epoch as transaction metadata instead of a
-  script-locked UTxO (cheaper, but the verifier then trusts the controller key, not the chain) —
-  the same trade-off as [`CardanoCreditLine`](../CardanoCreditLine/README.md).
+  script-locked UTxO (cheaper, but the verifier then trusts the controller key, not the chain — the
+  metadata read still authenticates the controller via the tx input address and an embedded
+  signature over `did_hash ‖ root ‖ epoch`) — the same trade-off as
+  [`CardanoCreditLine`](../CardanoCreditLine/README.md).
 
 Without the env vars the program prints these instructions and exits.
 

@@ -5,9 +5,16 @@ blocks into an end-to-end **compliance flow** for a permissioned token.
 
 ## What it demonstrates
 
-Onboarding → DID + attestations → presentation → `VerificationPolicy` → **allowlist admission**
-(`IAllowlistGateway`) → token ownership, then a **revocation-epoch** bump that makes the prior
-presentation stale and removes the address — blocking further transfers. The pieces:
+Onboarding → DID + attestations → **holder-signed presentation** → `VerificationPolicy` →
+**allowlist admission** (`IAllowlistGateway`) → token ownership, then a **revocation-epoch** bump
+that makes the prior presentation stale and removes the address — blocking further transfers.
+
+The presentation is authenticated: the holder builds it with
+`Holder.BuildSignedPresentation(verifier, types, nonce, asOfRevocationEpoch, chain, signChallenge)`,
+signing the canonical challenge with their DID controller key, and the `Verifier` checks that
+signature before admission. Revocation is **fail-closed** — `RequireCurrentRevocationEpoch` requires
+a reachable chain anchor and an exact match to the current epoch, so the post-bump re-check fails
+with `revocation_stale`. The pieces:
 
 - `CompliancePolicies` — the declarative `VerificationPolicy` (required attestation types +
   predicate rules).

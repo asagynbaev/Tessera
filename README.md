@@ -56,8 +56,11 @@ the `Sagynbaev.Tessera.Sdk` package); namespaces remain `Tessera.*`.
 | `Tessera.Sources.XRoad` | Layer-2 plugin: X-Road government registry → residency / property / encumbrance. |
 | `Tessera.Sources.Bitcoin` | Layer-2 plugin: proven control of Bitcoin addresses (BIP-137 signed challenge) → `btc_control` (address count only) + Pedersen-committed `btc_balance` / `btc_hodl_age`. Esplora (mempool.space / blockstream.info) provider. |
 
-> **Audit status:** `Tessera.Cryptography` is a from-scratch, **not constant-time**
-> implementation pending external review. Threat model and known limitations:
+> **Audit status:** v3.2.0 is a security-hardening release (authenticated holder
+> presentations, fail-closed revocation, address-bound wallet binding, authenticated
+> on-chain anchors — see [Security](#security)). `Tessera.Cryptography` remains a
+> from-scratch, **not constant-time** implementation pending external review; constant-time
+> `Point.ScalarMul` is deferred to that audit. Threat model and known limitations:
 > [docs/security-audit-readiness.md](docs/security-audit-readiness.md).
 
 ## Repository layout
@@ -148,13 +151,16 @@ holder.AcceptAttestation(attestationFromIssuer);
 await holder.AnchorRootAsync();
 
 // Build a presentation for a relying app, disclosing only what it needs.
-var presentation = holder.BuildPresentation(
+// The holder AUTHENTICATES it by signing the canonical challenge with the controller
+// key; the matching public key is embedded so the verifier re-derives the DID and
+// checks the signature with no store lookup.
+var presentation = holder.BuildSignedPresentation(
     verifier:             new DidId("did:tessera:my-relying-app"),
     attestationTypes:     new[] { "phone_verified" },
     sessionNonce:         RandomBytes(16),
     asOfRevocationEpoch:  0,
     chain:                "solana",
-    holderSignature:      walletSignatureOverBinding);
+    signChallenge:        ch => Ed25519.Sign(controllerPriv, ch.Span));
 ```
 
 ### Issuer side — sign attestations, publish your key
@@ -298,6 +304,57 @@ they upgrade.
 | `Tessera.Integration.Stellar.*` | `Tessera.Chains.Stellar`. |
 | `Tessera.Crypto.*` | `Tessera.Cryptography`. |
 | `Tessera.Privacy.CredentialProof` | `Tessera.Attestations.CredentialProof`. |
+
+## Security
+
+v3.2.0 is a security-hardening release. The guarantees that matter at the trust boundary:
+
+- **Authenticated holder presentations.** A presentation carries the holder's controller
+  public key (`PresentationBinding.HolderPublicKey`, 32-byte Ed25519) and a signature over a
+  canonical `PresentationChallenge` (verifier, session nonce, revocation epoch, chain,
+  `CreatedAt`, disclosed leaf hashes). The verifier confirms
+  `DidId.FromControllerKey(HolderPublicKey) == Holder` and checks the signature — so audience,
+  nonce, epoch and freshness are all holder-authenticated, not just plaintext fields. Build with
+  `Holder.BuildSignedPresentation(..., signChallenge: ch => Ed25519.Sign(controllerPriv, ch.Span))`,
+  or split via `BuildPresentationChallenge` + `BuildPresentation(..., holderSignature, createdAt)`
+  for out-of-band / hardware signers.
+- **Fail-closed revocation + freshness.** When a chain anchor is configured, a presentation
+  bound to an epoch older than the chain's current epoch is rejected unconditionally.
+  `RequireCurrentRevocationEpoch` additionally demands a reachable anchor and an EXACT match to
+  the current epoch (it no longer silently skips when `ExpectedAnchorRoot` is supplied). A
+  presentation freshness window (`MaxPresentationAge` / `MaxClockSkew`, both authenticated via
+  the signed `CreatedAt`) bounds replay.
+- **Address-bound wallet binding.** Binding a wallet to a DID proves the bound address is
+  controlled by the wallet key via `IWalletControlVerifier` (the default covers Solana
+  base58(pubkey) and fails closed on chains it does not understand). `BuildWalletChallenge` binds
+  the wallet pubkey, binding nonces are single-use through an `INonceStore`, and
+  `DidService.GetActiveAsync` enforces revocation on resolve. Pepper providers reject all-zero /
+  low-entropy peppers.
+- **Source ↔ DID binding.** Sumsub KYC requires the applicant `externalUserId` to equal the
+  subject DID; X-Road uses server-asserted identifiers verified against the request. Both clients
+  require HTTPS.
+- **Authenticated on-chain anchors.** EVM `IdentityRegistry.registerDid` requires a controller
+  ECDSA signature bound to `(didHash, root, chainid, contract)`; the C# adapter signs it and
+  checks `receipt.Status` on every write. Solana `register_issuer` is admin-gated via a
+  `RegistryConfig` PDA (`initialize(admin)` / `deactivate_issuer`); the adapter fails closed on
+  RPC errors and checks the owning program + discriminator. Cardano metadata-mode reads
+  authenticate the controller (tx input address + embedded controller signature over
+  `did_hash‖root‖epoch`) and the Aiken `issuer_registry` is governance-gated.
+- **Soroban Ed25519.** The Stellar `attestation-verifier` was redesigned to Ed25519
+  public-key verification with admin `initialize` / `set_issuer`; the trusted issuer key lives in
+  contract storage. The HMAC secret is no longer a caller-supplied argument — any `--hmac_key` /
+  `ZKP_HMAC_KEY` usage is removed.
+- **Reference apps.** In `examples/PrivacyApps`, voting uses a 1-bit range proof ({0,1}); the
+  sealed-bid auction enforces both bounds; the confidential transfer checks Pedersen balance
+  conservation (`amount + change == sender balance`) in addition to the range proofs.
+
+Caveats: `Tessera.Cryptography` is still **not constant-time** — constant-time `Point.ScalarMul`
+and a type-tagged claim-canonicalization wire format are deferred to the planned external
+cryptography audit (claim canonicalization is already culture-invariant). The Anchor (Solana),
+Aiken (Cardano) and Solidity (EVM) contract changes above are source-level: they require the
+respective toolchain build (`anchor build` / `aiken build` + regenerated `plutus.json` / Hardhat
+compile) and redeploy to take effect on a live network. See
+[docs/security-audit-readiness.md](docs/security-audit-readiness.md) for the full threat model.
 
 ## Roadmap
 

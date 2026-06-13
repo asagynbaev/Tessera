@@ -65,7 +65,7 @@ double-satisfaction guard), and token conservation.
 | `register_did` | `init` the PDA, set fields | `mint` redeemer `RegisterDid`: mint the beacon, create the UTxO (`epoch = 0`) |
 | `update_root` | `update_root` ix, owner-signed | `spend` redeemer `UpdateRoot { new_root }`, controller-signed |
 | `bump_revocation` | `bump_revocation` ix, `checked_add(1)` | `spend` redeemer `BumpRevocation`, `epoch_out == epoch_in + 1` |
-| `register_issuer` | `init` the issuer PDA | `mint` on the `issuer_registry` validator (immutable, issuer-signed) |
+| `register_issuer` | `init` the issuer PDA, admin-gated via a `RegistryConfig` PDA (`initialize(admin)` / `deactivate_issuer`) | `mint` on the `issuer_registry` validator, governance-gated by a parameterized `admin` VKH (`admin ∈ tx.extra_signatories`) |
 | Mutation auth | `require_keys_eq!(owner, signer)` | `controller ∈ tx.extra_signatories` |
 | Epoch overflow | `EpochOverflow` (u64 checked) | not applicable — Plutus `Int` is arbitrary precision |
 | Anti-fork | one PDA per hash (re-init fails) | thread-token continuity: exactly one continuing output, no stray mint/burn |
@@ -220,9 +220,13 @@ zero token/provider specifics in the core:
 - **Generic EVM anchor** (`Tessera.Chains.Evm.EvmChainAnchor`). `IChainAnchor` over the
   `chains/evm` `IdentityRegistry` contract via Nethereum, on any EVM network. Strict parity
   with the Solana program: `registerDid` / `updateRoot` / `bumpRevocation` / `registerIssuer`,
-  owner-gated by `msg.sender`, roots + revocation epochs only. `DidHash.Compute` (in
-  `Tessera.Chains.Abstractions`) gives a DID the same hash on every chain. Reads retry on
-  transient RPC faults; writes are single-shot to avoid double-submission.
+  roots + revocation epochs only. `registerDid(didHash, attestationRoot, controller, signature)`
+  requires a controller **ECDSA signature** bound to `(didHash, root, chainid, contract)` — only the
+  DID controller can create the anchor (no squatting); the adapter signs this with the configured
+  controller key, and `updateRoot` / `bumpRevocation` stay owner-gated by `msg.sender`. `DidHash.Compute`
+  (in `Tessera.Chains.Abstractions`) gives a DID the same hash on every chain. Reads retry on
+  transient RPC faults; writes are single-shot to avoid double-submission, and the adapter checks
+  `receipt.Status` on every write (failed transactions throw rather than being treated as success).
 - **Allowlist gateway** (`IAllowlistGateway` in abstractions; `EvmAllowlistGateway` in the EVM
   package). Reflects an off-chain verification decision onto an on-chain transfer-restriction
   contract: `AddAsync` / `RevokeAsync`. Contract address, network, and function names are
@@ -267,7 +271,10 @@ prevents squatting and ties identity to provable control.
 A DID document carries:
 - The controller key (`Ed25519VerificationKey2020` by default).
 - A list of bound wallets, each with a signature from the wallet itself over
-  `{did, chain, address, nonce, expiry}`. `DidService.BindWalletAsync` enforces all five.
+  `{did, chain, address, wallet_pubkey, nonce, expiry}`. `DidService.BindWalletAsync` enforces all
+  fields, and separately proves the bound address is controlled by that wallet key via
+  `IWalletControlVerifier` (the default covers Solana `base58(pubkey)` and fails closed on chains it
+  does not understand). The `nonce` is single-use, tracked through an `INonceStore` to block replay.
 - A list of bound off-chain channels (Telegram, phone, email) as `blake3(handle || salt)`
   commitments — never plaintext, never salt-only.
 - The current Merkle attestation root.
@@ -279,24 +286,67 @@ A DID document carries:
 2. Issuer calls `AttestationIssuer.Issue(type, subject, payload)` to sign an envelope.
 3. Holder collects attestations into an `AttestationBundle`. The bundle's `Root`
    is anchored on-chain via `IChainAnchor.AnchorRootAsync`.
-4. Verifier asks for a presentation. Holder calls `bundle.DisclosureFor(index)` and
-   wraps it in a `Presentation` bound to `{verifier, session_nonce, as_of_epoch, chain}`.
-5. Verifier calls `PresentationVerifier.VerifyAsync(presentation, expectedRoot)` where
-   `expectedRoot` is read from `IChainAnchor.GetAnchorAsync`.
+4. Verifier asks for a presentation and issues a session nonce. The holder builds an
+   **authenticated** presentation, signing the canonical `PresentationChallenge`
+   (`Tessera.Attestations`) with the controller private key:
+
+   ```csharp
+   var presentation = holder.BuildSignedPresentation(
+       verifierDid,
+       new[] { AttestationTypes.KycVerified },   // or explicit indices
+       sessionNonce,
+       asOfRevocationEpoch: state.RevocationEpoch,
+       chain: anchor.ChainId,
+       signChallenge: ch => Ed25519.Sign(holderPriv, ch.Span));
+   ```
+
+   The challenge covers `{holder, verifier, session_nonce, as_of_revocation_epoch, chain,
+   created_at, disclosed_leaf_hashes}`. For hardware / out-of-band signers, split it:
+   `BuildPresentationChallenge(...)` → sign → `BuildPresentation(..., holderSignature, createdAt)`
+   with the SAME `createdAt`. The resulting `PresentationBinding` carries the
+   `HolderSignature` and the 32-byte Ed25519 `HolderPublicKey`.
+5. Verifier calls `PresentationVerifier.VerifyAsync(presentation, expectedRoot)`
+   (constructed as `new PresentationVerifier(attestationVerifier, signatureVerifier)`),
+   or the higher-level `Verifier.VerifyPresentationAsync(presentation, policy)`. Verification
+   re-derives `DidId.FromControllerKey(HolderPublicKey)`, confirms it equals `presentation.Holder`,
+   and checks the holder signature over the recomputed challenge — so the presenter is *proven* to
+   control the holder DID. `expectedRoot` is read from `IChainAnchor.GetAnchorAsync`.
 
 The Merkle tree is domain-separated SHA-256 (leaf tag `0x00`, node tag `0x01`).
 
+### Fail-closed revocation and freshness
+
+Revocation is enforced at verification time, not left optional:
+
+- Whenever a chain anchor is reachable, a presentation bound to an epoch **older** than the
+  chain's current `RevocationEpoch` is rejected (`revocation_stale`) — unconditionally.
+- `VerificationPolicy.RequireCurrentRevocationEpoch` additionally **fails closed**: it demands a
+  reachable chain anchor and an **exact** match (`AsOfRevocationEpoch == chain epoch`), so a holder
+  cannot defeat the check by inflating the epoch. Setting only `ExpectedAnchorRoot` no longer skips
+  the revocation check.
+- A freshness window is always enforced: `CreatedAt` is part of the signed challenge, and the
+  verifier rejects presentations older than `MaxPresentationAge` (default 5 min) or future-dated
+  beyond `MaxClockSkew` (default 1 min) — `presentation_expired` / `presentation_future_dated`.
+
 ## Threat model summary
 
-See `docs/threat-model.md` (TODO) for detail. Headline risks:
+See [`docs/security-audit-readiness.md`](security-audit-readiness.md) for the full threat model and audit dossier. Headline risks:
 
 1. **Low-entropy channel commitments** (Telegram handle space ~10⁹). Mitigation:
    HKDF with KMS-held pepper.
-2. **Wallet-binding spoofing.** Mitigation: challenge–response signed by the wallet itself,
-   with all five fields required.
+2. **Wallet-binding spoofing.** Mitigation: challenge–response signed by the wallet itself (the
+   challenge binds the wallet pubkey, not just a caller-chosen address); the bound address is proven
+   to be controlled by that key via `IWalletControlVerifier` (fails closed on unknown chains), and
+   the binding nonce is single-use through an `INonceStore`.
 3. **Issuer key compromise.** Mitigation: per-issuer revocation epoch + short attestation expiries.
-4. **Replay across verifiers / DIDs / chains.** Mitigation: every presentation is bound to
-   `{verifier, session_nonce, as_of_revocation_epoch, chain}`.
+4. **Replay across verifiers / DIDs / chains.** Mitigation: every presentation is **holder-signed**
+   over a canonical challenge covering `{holder, verifier, session_nonce, as_of_revocation_epoch,
+   chain, created_at, disclosed_leaf_hashes}`. The verifier re-derives the DID from the embedded
+   controller key and checks the signature (authenticated presenter), enforces a freshness window
+   (`MaxPresentationAge` / `MaxClockSkew`), and fails closed on stale revocation epochs.
+5. **Presentation theft / impersonation.** Mitigation: authentication binds the presentation to the
+   holder's controller key — a stolen presentation cannot be re-presented by a party that does not
+   hold the private key, and the bound leaf-hash set stops it being re-used over other attestations.
 
 ## v3 cut — done
 

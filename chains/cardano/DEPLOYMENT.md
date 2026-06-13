@@ -43,10 +43,17 @@ For the validators as committed:
 | Validator | Policy id | Preprod address |
 |---|---|---|
 | `identity_anchor` | `73f81b6b4d9a0f348391acc37f7122cdca4dcc34a219c5ae111fdd60` | `addr_test1wpelsxmtfkdq7dyrjxkvxlm3ytxu5nwvxj3pn3dwzy0a6cqcu2k9g` |
-| `issuer_registry` | `3f94e0bc7163fef7ee132215bd94eee699b3a41fa5e049d4aca884e4` | `addr_test1wqlefc9uw93laalwzv3pt0v5amnfnvayr7j7qjw54j5gfeqt2sa63` |
+| `issuer_registry` (pre-parameter) | `3f94e0bc7163fef7ee132215bd94eee699b3a41fa5e049d4aca884e4` | `addr_test1wqlefc9uw93laalwzv3pt0v5amnfnvayr7j7qjw54j5gfeqt2sa63` |
 
-The C# adapter derives the same values from `plutus.json` at runtime, so you do
-not need to copy them into config unless you want to.
+The C# adapter derives the `identity_anchor` values from `plutus.json` at runtime,
+so you do not need to copy them into config. **`issuer_registry` is now
+governance-gated** — it is parameterized by an `admin: VerificationKeyHash`, so
+the values above are the *pre-parameter* scaffold in the checked-in `plutus.json`
+and will change once you `aiken build` and apply your admin VKH. If you use issuer
+registration, derive the parameter-applied script/address and supply it
+explicitly (Step 4) — do not rely on the embedded blueprint for issuer
+onboarding. On-chain validator changes only take effect after rebuilding with the
+Aiken toolchain and using the new script address.
 
 ## Step 3 — Fund the controller wallet
 
@@ -69,8 +76,37 @@ var anchor = new CardanoChainAnchor(new CardanoAnchorOptions
 });
 ```
 
-`ScriptRefs` is optional — leave it null to derive the script + address + policy
-id from the blueprint shipped with the package.
+`ScriptRefs` is optional for DID anchoring — leave it null to derive the
+`identity_anchor` script + address + policy id from the blueprint shipped with the
+package.
+
+**Issuer registration is different.** `RegisterIssuerAsync` requires
+`AnchorMode.Validator`, and because `issuer_registry` is now parameterized by a
+governance admin VKH, the embedded blueprint is only the unparameterized scaffold.
+To register issuers securely, build the parameter-applied `issuer_registry`
+(`aiken build` with your admin VKH), pass its compiled script bytes via
+`CardanoScriptRefs.IssuerRegistryScript`, and have the admin co-sign the
+registration transaction:
+
+```csharp
+// Each field is the validator's `compiledCode` hex from a `plutus.json`, decoded to bytes.
+// IssuerRegistryScript must be the build with your admin VKH applied as the parameter.
+byte[] identityAnchorBytes      = Convert.FromHexString(identityAnchorCompiledCodeHex);
+byte[] issuerRegistryBytes      = Convert.FromHexString(parameterAppliedIssuerRegistryHex);
+
+var anchor = new CardanoChainAnchor(new CardanoAnchorOptions
+{
+    Network             = CardanoNetwork.Preprod,
+    BlockfrostProjectId = Environment.GetEnvironmentVariable("TESSERA_CARDANO_BLOCKFROST_KEY")!,
+    SigningKey          = Environment.GetEnvironmentVariable("TESSERA_CARDANO_SKEY")!,
+    AnchorMode          = AnchorMode.Validator,
+    ScriptRefs          = new CardanoScriptRefs
+    {
+        IdentityAnchorScript = identityAnchorBytes,   // required when ScriptRefs is set
+        IssuerRegistryScript = issuerRegistryBytes,   // admin-VKH-applied compiledCode
+    },
+});
+```
 
 ## Step 5 — Exercise the flow
 

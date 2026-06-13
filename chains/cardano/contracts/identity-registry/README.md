@@ -29,9 +29,14 @@ what defeats double-satisfaction (no single output can satisfy two spends).
 | Validator | Module | Policy id / script hash | Testnet (preprod) address |
 |---|---|---|---|
 | `identity_anchor` | `identity_anchor` | `73f81b6b4d9a0f348391acc37f7122cdca4dcc34a219c5ae111fdd60` | `addr_test1wpelsxmtfkdq7dyrjxkvxlm3ytxu5nwvxj3pn3dwzy0a6cqcu2k9g` |
-| `issuer_registry` | `issuer_registry` | `3f94e0bc7163fef7ee132215bd94eee699b3a41fa5e049d4aca884e4` | `addr_test1wqlefc9uw93laalwzv3pt0v5amnfnvayr7j7qjw54j5gfeqt2sa63` |
+| `issuer_registry` (pre-parameter) | `issuer_registry` | `3f94e0bc7163fef7ee132215bd94eee699b3a41fa5e049d4aca884e4` | `addr_test1wqlefc9uw93laalwzv3pt0v5amnfnvayr7j7qjw54j5gfeqt2sa63` |
 
-These are deterministic from source — `aiken build` reproduces them exactly. Both
+`identity_anchor` is unparameterized, so its values are deterministic from source
+— `aiken build` reproduces them exactly. **`issuer_registry` is now parameterized
+by an `admin: VerificationKeyHash`** (see below), so its policy id / script
+address are derived only *after* the admin parameter is applied — the values
+above are the pre-parameter scaffold checked into the current `plutus.json` and
+**will change** once you `aiken build` and apply your governance admin VKH. Both
 addresses are testnet-format (`addr_test`), valid on preprod and preview.
 
 ## Datums

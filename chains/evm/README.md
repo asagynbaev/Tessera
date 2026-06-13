@@ -68,6 +68,11 @@ npm run export-abi # refresh abi/*.abi.json (checked into the repo)
 The checked-in `abi/IdentityRegistry.abi.json` is the stable interface the C# adapter
 (`src/Tessera.Chains.Evm/`) and its integration tests target.
 
+> **v3.2.0 — breaking ABI change.** `registerDid` gained `controller` + `signature`
+> parameters (the controller proof above), so its selector changed and the checked-in
+> ABI was regenerated. Any already-deployed `IdentityRegistry` from a prior version is
+> incompatible and must be **redeployed**; clients must use the regenerated ABI.
+
 ## Deploy
 
 ```bash
@@ -82,4 +87,8 @@ The deployer becomes the initial issuer-registry authority unless
 ## C# client
 
 `src/Tessera.Chains.Evm/EvmChainAnchor` implements `IChainAnchor` against this
-contract via Nethereum. See that package for the adapter and tests.
+contract via Nethereum. On the `registerDid` path it derives `controller` from its
+configured signing key and produces the controller signature automatically. Every write
+asserts the mined receipt's EIP-658 `Status == 1` (a missing/null status is treated as
+failure), throwing `EvmTransactionFailedException` rather than reporting a reverted or
+unverifiable transaction as success. See that package for the adapter and tests.

@@ -32,12 +32,15 @@ proof verification on-chain. Auditors should confirm no code path writes anythin
 | # | Threat | Mitigation | Audit focus |
 |---|--------|------------|-------------|
 | 1 | Forged attestation | Issuer Ed25519 signature over canonical bytes; issuer registry resolves active key | `AttestationCanonical`, signature checks |
-| 2 | Replay across verifiers / sessions / chains | Presentation bound to `{verifier, session_nonce, as_of_epoch, chain}` | `Verifier.VerifyPresentationAsync` |
-| 3 | Stale presentation after revocation | On-chain `revocation_epoch`; policy `RequireCurrentRevocationEpoch` | epoch comparison `current > asOf` |
-| 4 | Issuer key compromise | Per-issuer `active` flag + `deactivateIssuer` + short attestation expiries | issuer registry read/write |
-| 5 | Allowlist tamper | Restriction contract is agent/owner-gated; gateway only reflects decisions | `Allowlist.sol`, `EvmAllowlistGateway` |
-| 6 | EVM write double-submission | Writes are single-shot; only reads are retried | `EvmChainAnchor.SendAsync`, `EvmRetry` |
-| 7 | Range/predicate soundness | Bulletproofs range proof; **see Known limitations** | `RangeProof.Verify`, `PolicyEvaluation` |
+| 2 | Stolen presentation replayed by a non-holder | Presentation is AUTHENTICATED: the binding carries a 32-byte `HolderPublicKey` that must re-derive to `Holder` plus an Ed25519 `HolderSignature` over the canonical `PresentationChallenge` | `PresentationVerifier.VerifyAsync` (holder-auth block), `PresentationChallenge.Compute` |
+| 3 | Replay across verifiers / sessions / chains / time | Challenge binds `{holder, verifier, session_nonce, as_of_epoch, chain, created_at, leaf_hashes}`; freshness window (`MaxPresentationAge`/`MaxClockSkew`) always enforced | `Verifier.VerifyPresentationAsync` steps 1–3, 6 |
+| 4 | Stale presentation after revocation | Revocation is FAIL-CLOSED: with a chain anchor reachable, an epoch older than the chain's current epoch is always rejected; `RequireCurrentRevocationEpoch` demands a reachable anchor and EXACT epoch match | `Verifier.VerifyPresentationAsync` step 5; `AnchorState.RevocationEpoch` |
+| 5 | Issuer key compromise | Per-issuer `active` flag + `deactivateIssuer` (EVM) / `deactivate_issuer` (Solana) + short attestation expiries | issuer registry read/write |
+| 6 | DID front-running / wallet- and address-spoofing | EVM `registerDid` requires a controller ECDSA signature bound to `(didHash, root, chainid, contract)`; wallet binding proves the address is controlled by the wallet key (`IWalletControlVerifier`) and consumes a single-use nonce (`INonceStore`) | `EvmRegistrationSigner`, `IdentityRegistry.registerDid`, `DefaultWalletControlVerifier`, `DidService.BindWalletAsync` |
+| 7 | Source ↔ subject impersonation | Sumsub requires applicant `externalUserId == subject DID`; X-Road binds the server-asserted national id from the response back to the request; both clients require https | `SumsubAttestationSource`, `XRoadAttestationSource` |
+| 8 | Allowlist tamper | Restriction contract is agent/owner-gated; gateway only reflects decisions | `Allowlist.sol`, `EvmAllowlistGateway` |
+| 9 | EVM write double-submission | Writes are single-shot; only reads are retried; the adapter checks `receipt.Status` on every write | `EvmChainAnchor.SendAsync`, `EvmRetry` |
+| 10 | Range/predicate soundness | Bulletproofs range proof; **see Known limitations** | `RangeProof.Verify`, `PolicyEvaluation` |
 
 ## Addressed
 
@@ -56,24 +59,74 @@ proof verification on-chain. Auditors should confirm no code path writes anythin
   values (e.g. jurisdiction `country ∈ {KZ}`). Claims are part of the signed canonical attestation,
   so they cannot be tampered post-issuance. The reference scenario now enforces residency this way
   instead of treating any `jurisdiction` attestation as resident.
+- **Holder authentication (was: presenter not proven).** A presentation no longer just *claims* a
+  holder DID — it proves control of it. `PresentationBinding` carries a required 32-byte
+  `HolderPublicKey` (the Ed25519 controller key) and a `HolderSignature` over the canonical
+  `PresentationChallenge` (which binds `{holder, verifier, session_nonce, as_of_epoch, chain,
+  created_at, disclosed leaf hashes}`). `PresentationVerifier.VerifyAsync` confirms
+  `DidId.FromControllerKey(HolderPublicKey) == Holder` and that the signature verifies against that
+  key before any other check. Build via `Holder.BuildSignedPresentation(...)` (or
+  `BuildPresentationChallenge` + `BuildPresentation(..., holderSignature, createdAt)` for hardware
+  signers); `PresentationVerifier`'s constructor is now `(AttestationVerifier, ISignatureVerifier)`.
+- **Fail-closed revocation + presentation freshness (was: opt-in / silently skipped).** When a chain
+  anchor is reachable, the verifier unconditionally rejects a presentation bound to an epoch older
+  than the chain's current epoch; `RequireCurrentRevocationEpoch` further demands a reachable anchor
+  and an EXACT epoch match (throws if no anchor is configured — `ExpectedAnchorRoot` no longer
+  silently bypasses revocation). A freshness window (`MaxPresentationAge` default 5 min,
+  `MaxClockSkew` default 1 min) is always enforced against the holder-signed `CreatedAt`.
+  `DidService.GetActiveAsync` enforces `Revoked` on resolve.
+- **DID / wallet / source binding.** Wallet binding proves the bound address is controlled by the
+  wallet key: `IWalletControlVerifier` (default `DefaultWalletControlVerifier` checks Solana
+  `base58(pubkey)` and fails closed on every other chain); `BuildWalletChallenge` binds the wallet
+  pubkey; binding nonces are single-use via an `INonceStore`. Channel binding has authenticated
+  add/remove overloads. Sumsub requires applicant `externalUserId == subject DID`; X-Road binds the
+  server-asserted national id from the response to the request; both HTTP clients reject non-https.
+  Pepper providers reject all-zero / grossly low-entropy peppers (`IPepperProvider.Validate`).
+- **On-chain anchor authentication (EVM live; others source-level).** EVM
+  `IdentityRegistry.registerDid(bytes32 didHash, bytes32 attestationRoot, address controller, bytes signature)`
+  requires a controller ECDSA signature over `keccak256(abi.encode(didHash, root, block.chainid,
+  address(this)))` (EIP-191), recovered on-chain with low-S enforced; the C# `EvmChainAnchor` signs
+  it (`EvmRegistrationSigner`) and checks `receipt.Status` on every write. The Solana program gates
+  `register_issuer` / `deactivate_issuer` behind a `RegistryConfig` PDA + `initialize(admin)`
+  (`has_one = admin`); the adapter fails closed on RPC errors and verifies the account owner program
+  + Anchor discriminator. Cardano Metadata-mode reads authenticate the controller (tx input address
+  + an embedded Ed25519 signature over `did_hash‖root‖epoch`, `MetadataAttestation.Verify`); the
+  Aiken `issuer_registry` is parameterized by an `admin` VKH that must sign. Stellar Soroban
+  `attestation-verifier` was redesigned to Ed25519 public-key verification with admin
+  `initialize`/`set_issuer` — the HMAC secret is no longer an invocation argument.
+  (Anchor / Aiken / Soroban edits are source-level; see Known limitations for the build+redeploy gap.)
 
 ## Known limitations (do not ship to high-assurance use without addressing)
 
 1. **`Tessera.Cryptography` is not constant-time / not formally reviewed.** Self-implemented
    secp256k1 + Bulletproofs. No claim of side-channel resistance; needs an external crypto audit
-   before protecting funds or high-value secrets. The predicate binding and two-sided range proofs
-   in §"Addressed" rely on its `Point`/`Scalar` arithmetic being correct.
-2. **Solana ↔ EVM parity gap.** The Solana program lacks an issuer-registered event, idempotent
-   issuer re-registration, and a `deactivate_issuer` instruction that the EVM contract has.
-   Rebuilding the Anchor program requires the Anchor toolchain (not in the build environment).
-3. **Cardano Validator-mode transaction assembly is offline-verified but not yet validated on-chain.**
+   before protecting funds or high-value secrets. Concretely DEFERRED to that audit:
+   `Point.ScalarMul` is still a branch-on-bit double-and-add (NOT constant-time — leaks the scalar
+   to SPA/timing), and the claim-canonicalization wire format is length-prefixed but not yet
+   type-tagged. Claim canonicalization is now culture-invariant. The predicate binding and two-sided
+   range proofs in §"Addressed" rely on the `Point`/`Scalar` arithmetic being correct.
+2. **On-chain contract hardening is source-level; live networks need a build + redeploy.** The
+   admin/governance gates and authentication described in §"Addressed" land in the contract sources
+   but only take effect once each toolchain compiles and the artifact is redeployed: the Solana
+   `RegistryConfig` + `initialize`/`deactivate_issuer` program needs `anchor build`; the Aiken
+   `issuer_registry` admin-VKH gate needs `aiken build` + a regenerated `plutus.json`; the EVM
+   `registerDid` controller-signature change needs `hardhat`/`forge` compile + deploy. These
+   toolchains are not in the build environment, so a previously-deployed registry will not enforce
+   the new gates until upgraded. The C# adapters already speak the hardened ABIs/instruction layouts.
+3. **Stellar Soroban workspace requires a newer Rust than the build environment.** The redesigned
+   Ed25519 `attestation-verifier` (admin `initialize`/`set_issuer`, no HMAC argument) targets
+   `soroban-sdk` 26.1 / `wasm32v1-none`, which needs rustc ≥ 1.84; the contract is source-complete
+   but cannot be compiled/redeployed here. Do not assume the on-chain verifier reflects the new
+   design until it is rebuilt and redeployed.
+4. **Cardano Validator-mode transaction assembly is offline-verified but not yet validated on-chain.**
    Because CardanoSharp 5.1.0 predates Plutus V3, the Conway / V3 transaction (script-data hash,
    execution-unit budgeting, witness layout) is hand-built with `System.Formats.Cbor`. The script
    hash / address / datum / redeemer CBOR are pinned by golden vectors and cross-checked against the
    Aiken blueprint, but a live preprod `register → update → bump` has not yet been run (gated on
    funding a preprod wallet). Do not rely on Validator mode in production until that live run confirms
    the script-data hash + ex-unit budgeting end-to-end. The Aiken validators themselves are covered
-   by `aiken check` (18 tests); Metadata mode and all reads are independent of this gap.
+   by `aiken check`; Metadata mode and all reads are independent of this gap. (Metadata-mode reads
+   now authenticate the controller — see §"Addressed".)
 
 ## Deterministic test artifacts
 
@@ -104,9 +157,16 @@ Auditors can reproduce these:
 
 ## Deferred (write-down, to finish later)
 
-- Engage an external cryptography auditor for `Tessera.Cryptography`.
-- Rebuild + extend the Solana program for full cross-chain parity (limitation 2).
+- Engage an external cryptography auditor for `Tessera.Cryptography`; in scope for that audit:
+  constant-time `Point.ScalarMul` (SPA/timing hardening) and a type-tagged claim-canonicalization
+  wire format (limitation 1).
+- Build + redeploy the hardened on-chain contracts so the new gates take effect on live networks:
+  `anchor build` (Solana `RegistryConfig` / `deactivate_issuer`), `aiken build` + regenerated
+  `plutus.json` (Aiken `issuer_registry` admin gate), EVM compile + deploy (`registerDid` controller
+  signature) (limitation 2).
+- Compile + redeploy the Stellar Soroban `attestation-verifier` on a toolchain with rustc ≥ 1.84
+  (limitation 3).
 - Run the live Cardano preprod `register → update → bump` and finalize the Validator-mode tx
-  builder — script-data hash + ex-unit budgeting (limitation 3).
+  builder — script-data hash + ex-unit budgeting (limitation 4).
 - Reserve the `Sagynbaev.*` NuGet ID prefix and add `NUGET_USER` + the trusted-publishing policy on
   nuget.org (see README), then cut the first tagged release.

@@ -50,6 +50,41 @@ anchor deploy --provider.cluster devnet
 solana address -k target/deploy/identity_registry-keypair.json
 ```
 
+### 4. Initialize the registry admin (once)
+
+The program is **admin-gated**: issuer registration and deactivation are restricted to a
+single `admin` key recorded in a singleton `RegistryConfig` PDA (seed `["config"]`). Before
+any issuer can be registered, call `initialize(admin)` exactly once. Because the config PDA
+uses a constant seed, a second `initialize` fails with `AccountAlreadyInUse`, so an attacker
+cannot re-initialize the config to seize admin.
+
+```bash
+# from the chains/solana workspace, using an Anchor TS client or `anchor run` script
+#   await program.methods.initialize(adminPubkey).rpc();
+# the signer/payer becomes the registry deployer; `adminPubkey` becomes the key that
+# may thereafter call register_issuer / deactivate_issuer.
+```
+
+`register_did`, `update_root`, and `bump_revocation` do **not** require the registry to be
+initialized — they are owner-signed and bind each DID anchor to its registering signer. The
+`RegistryConfig` is only consulted on the admin-gated issuer instructions.
+
+## Issuer registration (admin only)
+
+Once `initialize(admin)` has run, the recorded admin (and only that key) may register or
+deactivate issuers:
+
+| Instruction | Signer | Effect |
+|---|---|---|
+| `register_issuer(issuer_did_hash, schema_uri)` | `RegistryConfig.admin` | Create an `Issuer` PDA recording the issuer's off-chain signing key and schema URI. The `admin` signer must equal `RegistryConfig.admin` (`has_one = admin`); any other signer is rejected with `NotAdmin`. |
+| `deactivate_issuer()` | `RegistryConfig.admin` | Flip an issuer record inactive. Same admin gate. |
+
+These instructions are admin/governance operations, not part of the runtime
+`IChainAnchor` path. The C# adapter exposes internal builders
+(`IdentityRegistryInstructions.Initialize` / `RegisterIssuer` / `DeactivateIssuer`); the
+runtime `SolanaChainAnchor` surface only drives `register_did` / `update_root` /
+`bump_revocation` and reads.
+
 ## Wiring the C# adapter
 
 Once deployed, configure the `SolanaChainAnchor`:
@@ -103,6 +138,14 @@ anchor upgrade target/deploy/identity_registry.so --program-id <programId>
 ```
 
 The program ID stays stable across upgrades; only the bytecode changes. Account data on existing PDAs is preserved.
+
+> The admin gate and the other on-chain guards are **source-level** changes in
+> `src/lib.rs`. They only take effect on a cluster after `anchor build` (which validates
+> `declare_id!` against the on-disk keypair — re-run `anchor keys sync` if you rotated it)
+> and an `anchor upgrade` / `anchor deploy`. A previously deployed program keeps running its
+> old bytecode until you upgrade it. Note that adding the `RegistryConfig` to a registry that
+> was deployed before the admin gate existed requires a fresh `initialize(admin)` after the
+> upgrade.
 
 ## Cleaning up devnet artefacts
 
