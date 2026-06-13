@@ -114,6 +114,9 @@ public sealed class SolanaChainAnchor : IChainAnchor
 
     public async Task<bool> IsRevokedSinceAsync(DidId did, ulong asOfEpoch, CancellationToken ct = default)
     {
+        // Fail closed: GetAnchorAsync throws on RPC/transport errors (see TryLoadDidAnchorAsync),
+        // so a transient RPC failure surfaces as an exception here rather than a false
+        // "not revoked". A genuine "no anchor exists" still returns null → not revoked.
         var state = await GetAnchorAsync(did, ct).ConfigureAwait(false);
         if (state is null) return false;
         return state.RevocationEpoch > asOfEpoch;
@@ -121,14 +124,54 @@ public sealed class SolanaChainAnchor : IChainAnchor
 
     // ── helpers ──────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Load and decode the <c>DidAnchor</c> account at <paramref name="pda"/>.
+    /// </summary>
+    /// <returns>
+    /// The decoded account, or <c>null</c> only when the RPC call <em>succeeded</em> and the
+    /// account genuinely does not exist (Solana returns <c>value: null</c>).
+    /// </returns>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown (fail closed) when the RPC/transport call fails, when the returned account is
+    /// owned by a program other than the configured identity-registry program (account
+    /// substitution), or when the account data is malformed / has the wrong discriminator.
+    /// </exception>
     private async Task<DidAnchorAccount?> TryLoadDidAnchorAsync(PublicKey pda, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
         var response = await _rpc.GetAccountInfoAsync(pda.Key, _commitment).ConfigureAwait(false);
-        if (!response.WasSuccessful || response.Result?.Value?.Data is null || response.Result.Value.Data.Count == 0)
+
+        // Distinguish a transport/RPC error from a legitimate "account does not exist".
+        // On a successful call to a non-existent account, Solana returns a populated response
+        // whose Result.Value is null; WasSuccessful stays true. Any unsuccessful call is an
+        // RPC/transport failure and MUST fail closed (throw) rather than masquerade as "no anchor".
+        if (!response.WasSuccessful)
+            throw new InvalidOperationException(
+                $"Solana getAccountInfo failed for {pda.Key} (fail-closed): {response.Reason}");
+
+        var value = response.Result?.Value;
+
+        // Genuine "no account at this PDA" — legitimately not anchored / not revoked.
+        if (value is null)
             return null;
 
-        var raw = Convert.FromBase64String(response.Result.Value.Data[0]);
+        // Account-substitution defense: the account at this PDA MUST be owned by the
+        // identity-registry program. A PDA is only ever assigned to its program at init,
+        // but verifying explicitly closes the door on a spoofed/cloned-RPC response.
+        if (!string.Equals(value.Owner, _programId.Key, StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                $"Account {pda.Key} is owned by '{value.Owner}', not the identity-registry program " +
+                $"'{_programId.Key}' (possible account substitution).");
+
+        if (value.Data is null || value.Data.Count == 0)
+            throw new InvalidOperationException(
+                $"Account {pda.Key} exists but has no data to decode.");
+
+        var raw = Convert.FromBase64String(value.Data[0]);
+
+        // DidAnchorAccount.Decode validates the 8-byte Anchor discriminator and the minimum
+        // length, throwing if either is wrong — so a wrong account type owned by our program
+        // (or truncated data) cannot be silently mis-decoded.
         return DidAnchorAccount.Decode(raw);
     }
 

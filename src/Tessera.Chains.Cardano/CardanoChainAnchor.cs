@@ -103,8 +103,17 @@ public sealed class CardanoChainAnchor : IChainAnchor, IDisposable
     /// <summary>
     /// Register an issuer in the on-chain issuer registry (parity with the contract's
     /// <c>register_issuer</c>; not part of <see cref="IChainAnchor"/>). The issuer's schema URI is
-    /// hashed before it goes on-chain. Requires <see cref="CardanoScriptRefs.IssuerRegistryScript"/>
-    /// or the embedded blueprint, and (Validator mode) the issuer to sign with <paramref name="signingKey"/>.
+    /// hashed (SHA-256) before it goes on-chain.
+    /// <para>
+    /// SECURITY (finding C7): the <c>issuer_registry</c> validator is now governance-gated — it is
+    /// parameterized by an <em>admin verification-key hash</em> and requires the admin's signature
+    /// in <c>extra_signatories</c> (the old self-signed <c>issuer_pubkey</c> check was removed
+    /// because it was trivially self-satisfiable). After re-running <c>aiken build</c> on the
+    /// parameterized validator, callers must supply the parameter-applied compiled script via
+    /// <see cref="CardanoScriptRefs.IssuerRegistryScript"/> and have the governance admin co-sign the
+    /// registration transaction; the embedded blueprint is the unparameterized scaffold and is not a
+    /// secure issuer-onboarding deployment on its own.
+    /// </para>
     /// </summary>
     public async Task<AnchorTxResult> RegisterIssuerAsync(DidId issuerDid, byte[] signingKey, string schemaUri, CancellationToken ct = default)
     {
@@ -182,19 +191,61 @@ public sealed class CardanoChainAnchor : IChainAnchor, IDisposable
         var txs = await CardanoRetry.RunAsync(_options.Retry,
             () => _provider.GetMetadataTxsAsync(_options.MetadataLabel, ct), ct).ConfigureAwait(false);
 
-        // GetMetadataTxsAsync returns newest-first; take the first entry for this DID.
+        // The metadata label is a shared, permissionless namespace: any address can publish a tx
+        // under it claiming any did/root/epoch. We therefore authenticate every candidate against
+        // the controller before trusting it, and skip (rather than fail) on anything unauthenticated
+        // so a poisoned tx cannot suppress the controller's own newer state. GetMetadataTxsAsync
+        // returns newest-first; take the first entry that authenticates for this DID.
         foreach (var tx in txs)
         {
-            if (!tx.Json.TryGetProperty("did", out var didProp) || didProp.GetString() != didHex) continue;
-            var root = Convert.FromHexString(tx.Json.GetProperty("root").GetString()!);
-            var epoch = tx.Json.GetProperty("epoch").ValueKind == JsonValueKind.String
-                ? ulong.Parse(tx.Json.GetProperty("epoch").GetString()!)
-                : tx.Json.GetProperty("epoch").GetUInt64();
+            if (!TryReadDidMatch(tx, didHex, didHash, out var root, out var epoch)) continue;
+            if (!IsFromController(tx)) continue;
             var updatedAt = await ResolveBlockTimeAsync(tx.TxHash, ct).ConfigureAwait(false);
             return AnchorStateMapper.ToAnchorState(did, root, epoch, updatedAt);
         }
         return null;
     }
+
+    /// <summary>
+    /// True iff the metadata body is for <paramref name="didHex"/> and carries a valid controller
+    /// signature binding (did_hash‖root‖epoch); also enforces that the embedded public key hashes to
+    /// the configured controller key. Defensive: any malformed/missing field returns false.
+    /// </summary>
+    private bool TryReadDidMatch(MetadataTx tx, string didHex, byte[] didHash, out byte[] root, out ulong epoch)
+    {
+        root = Array.Empty<byte>();
+        epoch = 0;
+        var json = tx.Json;
+        if (json.ValueKind != JsonValueKind.Object) return false;
+        if (!json.TryGetProperty("did", out var didProp) || didProp.ValueKind != JsonValueKind.String
+            || didProp.GetString() != didHex) return false;
+        if (!json.TryGetProperty("root", out var rootProp) || rootProp.ValueKind != JsonValueKind.String) return false;
+        if (!json.TryGetProperty("epoch", out var epochProp)) return false;
+
+        try { root = Convert.FromHexString(rootProp.GetString()!); }
+        catch (FormatException) { return false; }
+        epoch = epochProp.ValueKind switch
+        {
+            JsonValueKind.String when ulong.TryParse(epochProp.GetString(), out var e) => e,
+            JsonValueKind.Number when epochProp.TryGetUInt64(out var e) => e,
+            _ => ulong.MaxValue,
+        };
+        if (epoch == ulong.MaxValue) return false;
+
+        var pkHex = json.TryGetProperty(MetadataAttestation.PubKeyField, out var pk) && pk.ValueKind == JsonValueKind.String
+            ? pk.GetString() : null;
+        var sigHex = json.TryGetProperty(MetadataAttestation.SignatureField, out var sig) && sig.ValueKind == JsonValueKind.String
+            ? sig.GetString() : null;
+
+        // The embedded public key must be the controller's, and the signature must bind the payload.
+        var pkHash = MetadataAttestation.KeyHash(pkHex);
+        if (pkHash is null || !pkHash.AsSpan().SequenceEqual(_key.KeyHash)) return false;
+        return MetadataAttestation.Verify(pkHex, sigHex, didHash, root, epoch);
+    }
+
+    /// <summary>True iff the controller's wallet address is among the metadata tx's funding inputs.</summary>
+    private bool IsFromController(MetadataTx tx)
+        => tx.InputAddresses.Any(a => string.Equals(a, _key.Address, StringComparison.Ordinal));
 
     private MetadataTxBuilder MetadataBuilder() => new(_provider, _key, _options.Network, _options.MetadataLabel);
 

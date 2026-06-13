@@ -132,10 +132,36 @@ internal sealed class BlockfrostCardanoProvider : ICardanoProvider, IDisposable
             var arr = doc.RootElement;
             if (arr.GetArrayLength() == 0) break;
             foreach (var e in arr.EnumerateArray())
-                result.Add(new MetadataTx(e.GetProperty("tx_hash").GetString()!, e.GetProperty("json_metadata").Clone()));
+            {
+                var txHash = e.GetProperty("tx_hash").GetString()!;
+                var json = e.GetProperty("json_metadata").Clone();
+                // The metadata-label feed carries no signer information — pull the tx's input
+                // (spender) addresses so the adapter can reject metadata authored by anyone
+                // other than the controller. Without this, any address can squat a DID's label.
+                var inputs = await GetTxInputAddressesAsync(txHash, ct).ConfigureAwait(false);
+                result.Add(new MetadataTx(txHash, json, inputs));
+            }
             if (arr.GetArrayLength() < 100) break;
         }
         return result;
+    }
+
+    /// <summary>The distinct bech32 input (spender) addresses of a transaction (its funding sources).</summary>
+    private async Task<IReadOnlyList<string>> GetTxInputAddressesAsync(string txHash, CancellationToken ct)
+    {
+        using var doc = await GetJsonAsync($"txs/{txHash}/utxos", ct, allowNotFound: true).ConfigureAwait(false);
+        if (doc is null) return Array.Empty<string>();
+        if (!doc.RootElement.TryGetProperty("inputs", out var inputs) || inputs.ValueKind != JsonValueKind.Array)
+            return Array.Empty<string>();
+        var set = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var i in inputs.EnumerateArray())
+        {
+            // Collateral inputs are not funding sources for the payload — ignore them.
+            if (i.TryGetProperty("collateral", out var c) && c.ValueKind == JsonValueKind.True) continue;
+            if (i.TryGetProperty("address", out var a) && a.ValueKind == JsonValueKind.String)
+                set.Add(a.GetString()!);
+        }
+        return set.ToArray();
     }
 
     // ── HTTP helpers ──────────────────────────────────────────────────────────

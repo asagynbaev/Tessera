@@ -16,4 +16,10 @@ public sealed record VerifierOptions
     /// from chain instead of trusting a caller-supplied root, and can check revocation freshness.
     /// </summary>
     public IChainAnchor? ChainAnchor { get; init; }
+
+    /// <summary>
+    /// Clock used for presentation freshness checks (and attestation expiry). Defaults to
+    /// <see cref="TimeProvider.System"/>. Inject a fake provider in tests.
+    /// </summary>
+    public TimeProvider? Clock { get; init; }
 }

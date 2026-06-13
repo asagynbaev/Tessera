@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-06-13
+
 Chain-agnostic core extended for permissioned-token / compliance use cases, organized as three
 layers (generic core → replaceable plugins → reference example) with dependencies pointing only
 inward. No vendor, network, token, or business-schema names in the core.
@@ -82,11 +84,66 @@ inward. No vendor, network, token, or business-schema names in the core.
 
 - Predicate verification in the policy is now **bound** to the disclosed attestation's commitment;
   the unbound `CredentialProof.Verify` remains as a standalone primitive but is not policy-accepted.
+- **Behavioral (review the migration notes below before upgrading):**
+  - `PresentationBinding` now carries a required `HolderPublicKey`, and `Verifier`/`PresentationVerifier`
+    now **enforce** the holder signature. Build presentations with the new
+    `Holder.BuildSignedPresentation(...)` (or `BuildPresentationChallenge` + `BuildPresentation(..., createdAt)`).
+    `PresentationVerifier`'s constructor now also takes an `ISignatureVerifier`.
+  - Revocation freshness is **fail-closed**: `RequireCurrentRevocationEpoch` now requires a reachable
+    chain anchor and an exact match to the current epoch, and a configured chain anchor always rejects
+    presentations older than the current epoch. A presentation freshness window (`MaxPresentationAge`,
+    `MaxClockSkew`) is now enforced.
+  - `DidService.BuildWalletChallenge` now binds the wallet public key, and `BindWalletAsync` rejects an
+    `Address` not provably controlled by `WalletPublicKey` (default verifier covers key-as-address chains
+    such as Solana and fails closed elsewhere — supply an `IWalletControlVerifier` for EVM/Bitcoin).
+  - Attestation claim values are canonicalized culture-invariantly (string-valued claims are unaffected).
 
 ### Security
 
+This release is a security-hardening pass over the whole stack (off-chain SDK + chain adapters + the
+on-chain contracts). Headline fixes:
+
+- **Holder presentations are now authenticated (was: unauthenticated → impersonation/replay).** The
+  `PresentationBinding.HolderSignature` is verified over a canonical `PresentationChallenge`
+  (verifier + session nonce + revocation epoch + chain + timestamp + disclosed leaf hashes) against the
+  key the holder DID derives from. Closes cross-verifier replay, session replay and stale-revocation
+  replay, which were unenforced because the binding was never checked.
+- **Revocation can no longer be bypassed:** holder-controlled `AsOfRevocationEpoch` is constrained to the
+  chain's current epoch (fail-closed), and `policy.ExpectedAnchorRoot` no longer silently skips the
+  revocation check.
+- **DID wallet binding** now proves the bound address is controlled by the wallet key (was: any keypair
+  could claim any address); wallet-binding nonces are single-use when an `INonceStore` is supplied;
+  channel bindings gained authenticated add/remove overloads; `GetActiveAsync` enforces revocation on
+  resolve; pepper providers reject all-zero / low-entropy peppers.
+- **External sources are bound to the subject DID:** Sumsub KYC requires the applicant `externalUserId`
+  to equal the subject DID (closes KYC "identity transplant"); X-Road uses server-asserted identifiers
+  and verifies them against the request; both clients require `https`.
+- **On-chain trust anchors are authenticated:**
+  - EVM `IdentityRegistry.registerDid` now requires a controller ECDSA signature bound to
+    `(didHash, attestationRoot, chainid, contract)` (closes DID squatting / root poisoning); the C#
+    adapter signs it and now checks `receipt.Status` on every write (a reverted tx is no longer reported
+    as success).
+  - Solana `register_issuer` is gated by a `RegistryConfig` admin (was: any signer could register a
+    trusted issuer key); the C# adapter fails closed on RPC errors and verifies account owner/discriminator.
+  - Cardano metadata-mode reads authenticate the controller (input address + embedded controller
+    signature over `did_hash‖root‖epoch`); the Aiken `issuer_registry` is governance-gated.
+  - Stellar Soroban `attestation-verifier` was redesigned to Ed25519 public-key verification — the secret
+    is no longer a public function argument (it previously authenticated nothing and leaked on-ledger).
+- **Range-proof misuse fixed in the reference apps:** `PrivateVoting`, `SealedBidAuction` and
+  `ConfidentialTransfer` now use bounded / conservation-checked proofs instead of the unbound
+  `RangeProof.Verify`, so ballots are `{0,1}`, bids respect the max, and transfers conserve value.
+- **Hardening:** Bulletproof `FromBytes` validates declared lengths before allocating (DoS);
+  EF Core DID store uses optimistic concurrency (a concurrent write can no longer resurrect a revoked
+  DID); the NuGet publish workflow no longer interpolates the dispatch input into a shell script and
+  third-party Actions are pinned to commit SHAs.
 - Closed the predicate-soundness gap: predicate proofs can no longer be presented about an arbitrary
-  or substituted value (binding + two-sided range). `Tessera.Cryptography` still awaits external audit.
+  or substituted value (binding + two-sided range).
+
+> **Deferred to the planned external cryptography audit:** `Tessera.Cryptography` constant-time / SPA
+> side-channel hardening (variable-time `Point.ScalarMul`), and a type-tagged claim-canonicalization
+> wire format. On-chain contract changes for Solana (Anchor) and Cardano (Aiken) are source-level and
+> require `anchor build` / `aiken build` + regenerated artifacts (and the EVM contract change requires
+> redeploying `IdentityRegistry` and re-pointing the ABI) before they take effect on a live network.
 
 ## [3.0.0] - 2026-05-13
 

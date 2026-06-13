@@ -30,7 +30,12 @@ internal interface ICardanoProvider
     /// <summary>Transaction details once on-chain (block height + time), or null if not yet confirmed.</summary>
     Task<TxConfirmation?> GetTxAsync(string txHash, CancellationToken ct);
 
-    /// <summary>Transactions carrying metadata under a label (for <see cref="AnchorMode.Metadata"/> reads).</summary>
+    /// <summary>
+    /// Transactions carrying metadata under a label (for <see cref="AnchorMode.Metadata"/> reads).
+    /// Each entry surfaces the tx's <em>input (spender) addresses</em> so the adapter can reject
+    /// metadata authored by anyone other than the controller — the metadata label is a shared,
+    /// permissionless namespace, so the submitter MUST be authenticated on read.
+    /// </summary>
     Task<IReadOnlyList<MetadataTx>> GetMetadataTxsAsync(ulong label, CancellationToken ct);
 }
 
@@ -72,4 +77,12 @@ internal sealed record TxConfirmation(ulong BlockHeight, long BlockTimeUnix);
 
 internal sealed record RedeemerEvaluation(string Purpose, uint Index, ulong Mem, ulong Steps);
 
-internal sealed record MetadataTx(string TxHash, JsonElement Json);
+/// <summary>
+/// A metadata-carrying transaction surfaced for <see cref="AnchorMode.Metadata"/> reads.
+/// <paramref name="InputAddresses"/> are the bech32 addresses funding the tx (its spent inputs);
+/// the adapter authenticates the submitter against the controller address before trusting
+/// <paramref name="Json"/>. The metadata label itself is permissionless, so a tx is only
+/// authoritative if it both originates from the controller AND carries a valid controller
+/// signature over its payload.
+/// </summary>
+internal sealed record MetadataTx(string TxHash, JsonElement Json, IReadOnlyList<string> InputAddresses);

@@ -9,15 +9,18 @@ public class DiscriminatorTests
     [Fact]
     public void InstructionDiscriminators_AreEightBytes()
     {
+        Assert.Equal(8, IdentityRegistryDiscriminators.Initialize.Length);
         Assert.Equal(8, IdentityRegistryDiscriminators.RegisterDid.Length);
         Assert.Equal(8, IdentityRegistryDiscriminators.UpdateRoot.Length);
         Assert.Equal(8, IdentityRegistryDiscriminators.BumpRevocation.Length);
         Assert.Equal(8, IdentityRegistryDiscriminators.RegisterIssuer.Length);
+        Assert.Equal(8, IdentityRegistryDiscriminators.DeactivateIssuer.Length);
     }
 
     [Fact]
     public void AccountDiscriminators_AreEightBytes()
     {
+        Assert.Equal(8, IdentityRegistryDiscriminators.RegistryConfigAccount.Length);
         Assert.Equal(8, IdentityRegistryDiscriminators.DidAnchorAccount.Length);
         Assert.Equal(8, IdentityRegistryDiscriminators.IssuerAccount.Length);
     }
@@ -27,10 +30,12 @@ public class DiscriminatorTests
     {
         var all = new[]
         {
+            IdentityRegistryDiscriminators.Initialize,
             IdentityRegistryDiscriminators.RegisterDid,
             IdentityRegistryDiscriminators.UpdateRoot,
             IdentityRegistryDiscriminators.BumpRevocation,
             IdentityRegistryDiscriminators.RegisterIssuer,
+            IdentityRegistryDiscriminators.DeactivateIssuer,
         };
 
         for (int i = 0; i < all.Length; i++)
@@ -41,8 +46,16 @@ public class DiscriminatorTests
     [Fact]
     public void AccountDiscriminators_AreDistinct()
     {
-        Assert.False(IdentityRegistryDiscriminators.DidAnchorAccount.SequenceEqual(
-            IdentityRegistryDiscriminators.IssuerAccount));
+        var all = new[]
+        {
+            IdentityRegistryDiscriminators.RegistryConfigAccount,
+            IdentityRegistryDiscriminators.DidAnchorAccount,
+            IdentityRegistryDiscriminators.IssuerAccount,
+        };
+
+        for (int i = 0; i < all.Length; i++)
+            for (int j = i + 1; j < all.Length; j++)
+                Assert.False(all[i].SequenceEqual(all[j]), $"account discriminator collision at {i},{j}");
     }
 
     [Fact]

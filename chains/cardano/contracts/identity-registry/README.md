@@ -58,7 +58,7 @@ IssuerDatum {               // issuer_registry (immutable once created)
 | `register_did` | `mint` · `RegisterDid` | controller | Mint the thread token (name = `did_hash`) and create the anchor UTxO with `revocation_epoch = 0`. |
 | `update_root` | `spend` · `UpdateRoot { new_root }` | controller | Recreate the anchor UTxO with `attestation_root := new_root`; epoch unchanged. |
 | `bump_revocation` | `spend` · `BumpRevocation { reason }` | controller | Recreate with `revocation_epoch := epoch + 1`; root unchanged. `reason` is advisory. |
-| `register_issuer` | `mint` · `RegisterIssuer` | issuer (self) | Mint the issuer beacon (name = `issuer_did_hash`) and lock the immutable `IssuerDatum`. |
+| `register_issuer` | `mint` · `RegisterIssuer` | governance admin (validator parameter) | Mint the issuer beacon (name = `issuer_did_hash`) and lock the immutable `IssuerDatum`. |
 
 ## On-chain checks
 
@@ -76,11 +76,24 @@ the tx; **exactly one** continuing output returns the token to the script
 monotonic — Cardano `Int` is arbitrary precision, so there is no overflow case).
 
 **`register_issuer` (mint):** exactly one beacon minted (qty 1) bound to a
-continuing output whose datum's `issuer_did_hash == token name`; the issuer
-authorises registration by signing with the key committed in `issuer_pubkey`
-(`blake2b_224(issuer_pubkey) ∈ extra_signatories`). Immutable thereafter — there
-is no spend handler, so the beacon is permanently locked (parity with the Solana
+continuing output whose datum's `issuer_did_hash == token name`; the datum's
+`schema_uri_hash` is a well-formed 32-byte SHA-256 digest; and — the C7 gate —
+the **governance admin** authorises registration by signing
+(`admin ∈ extra_signatories`), where `admin` is the verification-key hash the
+`issuer_registry` validator is **parameterized** with. The self-signed
+`issuer_pubkey` check was removed because it was trivially self-satisfiable: an
+attacker could bind any `issuer_did_hash` to a key they control. Onboarding is
+now an explicit, vetted governance action. Immutable thereafter — there is no
+spend handler, so the beacon is permanently locked (parity with the Solana
 account, which is never closed).
+
+> The `issuer_registry` validator now takes an `admin: VerificationKeyHash`
+> parameter, so its policy id / script address are derived only after applying
+> that parameter. Re-run `aiken build` to regenerate `plutus.json`, then point
+> the C# adapter at the parameter-applied script (and have the admin co-sign the
+> registration tx). The DID-hash invariant is unchanged — `issuer_did_hash` is
+> still `SHA-256(utf8(did))`, NOT a hash of the pubkey — so the cross-chain DID
+> keying is preserved.
 
 ## Trust boundary (eUTXO note)
 

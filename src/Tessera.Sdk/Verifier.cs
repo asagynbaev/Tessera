@@ -1,4 +1,5 @@
 using Tessera.Attestations;
+using Tessera.Chains;
 using Tessera.Core;
 
 namespace Tessera.Sdk;
@@ -17,12 +18,15 @@ public sealed class Verifier
     private readonly AttestationVerifier _attVerifier;
     private readonly PresentationVerifier _presVerifier;
 
+    private readonly TimeProvider _clock;
+
     public Verifier(VerifierOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
         _options = options;
-        _attVerifier = new AttestationVerifier(options.IssuerRegistry, options.SignatureVerifier);
-        _presVerifier = new PresentationVerifier(_attVerifier);
+        _clock = options.Clock ?? TimeProvider.System;
+        _attVerifier = new AttestationVerifier(options.IssuerRegistry, options.SignatureVerifier, options.Clock);
+        _presVerifier = new PresentationVerifier(_attVerifier, options.SignatureVerifier);
     }
 
     /// <summary>
@@ -53,44 +57,69 @@ public sealed class Verifier
         ArgumentNullException.ThrowIfNull(presentation);
         ArgumentNullException.ThrowIfNull(policy);
 
-        // 1. Binding fields the cryptographic verifier doesn't check
-        if (presentation.Binding.Verifier != policy.ExpectedVerifier)
+        var binding = presentation.Binding;
+
+        // 1. Audience binding. This plaintext compare is a fast reject; it is BACKED by the holder
+        //    signature (the verifier DID is part of the signed challenge), checked in step 6, so it
+        //    cannot be forged by a third party.
+        if (binding.Verifier != policy.ExpectedVerifier)
             return new VerificationResult { Valid = false, Reason = "verifier_mismatch" };
 
+        // 2. Session nonce (when the verifier issued one). Authenticated via the holder signature.
         if (policy.ExpectedSessionNonce is { } expectedNonce
-            && !presentation.Binding.SessionNonce.AsSpan().SequenceEqual(expectedNonce))
+            && !binding.SessionNonce.AsSpan().SequenceEqual(expectedNonce))
             return new VerificationResult { Valid = false, Reason = "session_nonce_mismatch" };
 
-        // 2. Determine the expected anchor root
-        byte[]? expectedRoot;
-        if (policy.ExpectedAnchorRoot is { } caller)
-        {
-            expectedRoot = caller;
-        }
-        else if (_options.ChainAnchor is { } chain)
-        {
-            var state = await chain.GetAnchorAsync(presentation.Holder, ct).ConfigureAwait(false);
-            if (state is null)
-                return new VerificationResult { Valid = false, Reason = "no_anchored_root" };
-            expectedRoot = state.AttestationRoot;
+        // 3. Freshness window — always enforced so a captured presentation cannot be replayed
+        //    indefinitely. CreatedAt is part of the signed challenge, so it is holder-authenticated.
+        var now = _clock.GetUtcNow();
+        if (now - binding.CreatedAt > policy.MaxPresentationAge)
+            return new VerificationResult { Valid = false, Reason = "presentation_expired" };
+        if (binding.CreatedAt - now > policy.MaxClockSkew)
+            return new VerificationResult { Valid = false, Reason = "presentation_future_dated" };
 
-            // 3. Revocation freshness — if the policy demands the presentation is anchored
-            // to the CURRENT epoch (not a stale one) and the chain has bumped past it.
-            if (policy.RequireCurrentRevocationEpoch
-                && state.RevocationEpoch > presentation.Binding.AsOfRevocationEpoch)
-                return new VerificationResult { Valid = false, Reason = "revocation_stale" };
-        }
-        else
-        {
+        // 4. Resolve the anchor state (once) and the expected Merkle root.
+        AnchorState? state = null;
+        if (_options.ChainAnchor is { } anchor)
+            state = await anchor.GetAnchorAsync(presentation.Holder, ct).ConfigureAwait(false);
+
+        byte[] expectedRoot;
+        if (policy.ExpectedAnchorRoot is { } caller)
+            expectedRoot = caller;
+        else if (state is not null)
+            expectedRoot = state.AttestationRoot;
+        else if (_options.ChainAnchor is null)
             throw new InvalidOperationException(
                 "No anchor root available: either supply policy.ExpectedAnchorRoot or configure VerifierOptions.ChainAnchor.");
+        else
+            return new VerificationResult { Valid = false, Reason = "no_anchored_root" };
+
+        // 5. Revocation freshness.
+        //    (a) Whenever a chain anchor is reachable, a presentation bound to an epoch OLDER than the
+        //        chain's current epoch is stale — rejected unconditionally (closes the opt-in gap).
+        //    (b) RequireCurrentRevocationEpoch additionally FAILS CLOSED: it demands chain access and
+        //        an EXACT match to the current epoch, so a holder cannot defeat the check by inflating
+        //        AsOfRevocationEpoch (it must equal the chain, not merely be "not less than" it).
+        if (state is not null && binding.AsOfRevocationEpoch < state.RevocationEpoch)
+            return new VerificationResult { Valid = false, Reason = "revocation_stale" };
+
+        if (policy.RequireCurrentRevocationEpoch)
+        {
+            if (_options.ChainAnchor is null)
+                throw new InvalidOperationException(
+                    "policy.RequireCurrentRevocationEpoch requires VerifierOptions.ChainAnchor; revocation freshness " +
+                    "cannot be verified against a caller-supplied ExpectedAnchorRoot alone.");
+            if (state is null)
+                return new VerificationResult { Valid = false, Reason = "no_anchored_root" };
+            if (binding.AsOfRevocationEpoch != state.RevocationEpoch)
+                return new VerificationResult { Valid = false, Reason = "revocation_stale" };
         }
 
-        // 4. Cryptographic + Merkle verification
+        // 6. Cryptographic verification: holder-binding signature + issuer signatures + Merkle inclusion.
         var cryptoResult = await _presVerifier.VerifyAsync(presentation, expectedRoot, ct).ConfigureAwait(false);
         if (!cryptoResult.Valid) return cryptoResult;
 
-        // 5. Declarative rules: required attestation types + predicate requirements.
+        // 7. Declarative rules: required attestation types + predicate requirements.
         //    Evaluated last, only on an otherwise-valid presentation.
         return PolicyEvaluation.EvaluateDeclarativeRules(presentation, policy);
     }
@@ -117,10 +146,27 @@ public sealed record VerificationPolicy
     public byte[]? ExpectedAnchorRoot { get; init; }
 
     /// <summary>
-    /// When true and a chain anchor is configured, fail with <c>revocation_stale</c> if the
-    /// chain's revocation epoch has advanced past <c>AsOfRevocationEpoch</c> in the presentation.
+    /// When true, revocation freshness FAILS CLOSED: a chain anchor must be configured and reachable,
+    /// and the presentation's <c>AsOfRevocationEpoch</c> must EQUAL the chain's current revocation
+    /// epoch (not merely be "not less than" it) — otherwise verification fails with
+    /// <c>revocation_stale</c> (or throws if no chain anchor is configured). Independently of this
+    /// flag, when a chain anchor is configured the verifier always rejects a presentation bound to an
+    /// epoch older than the chain's current epoch.
     /// </summary>
     public bool RequireCurrentRevocationEpoch { get; init; }
+
+    /// <summary>
+    /// Maximum age of a presentation (now − <c>CreatedAt</c>) before it is rejected as
+    /// <c>presentation_expired</c>. Always enforced; <c>CreatedAt</c> is part of the holder-signed
+    /// challenge, so it cannot be back-dated by a third party. Default: 5 minutes.
+    /// </summary>
+    public TimeSpan MaxPresentationAge { get; init; } = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// Allowed clock skew for a future-dated <c>CreatedAt</c> before rejection as
+    /// <c>presentation_future_dated</c>. Default: 1 minute.
+    /// </summary>
+    public TimeSpan MaxClockSkew { get; init; } = TimeSpan.FromMinutes(1);
 
     /// <summary>
     /// Attestation types the presentation must disclose. Every listed type must appear among the

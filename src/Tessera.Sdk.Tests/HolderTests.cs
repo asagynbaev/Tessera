@@ -119,18 +119,18 @@ public class HolderTests
     [Fact]
     public async Task BuildPresentation_ByIndices_ProducesValidDisclosures()
     {
-        var (_, pub) = Ed25519.GenerateKeypair();
+        var (priv, pub) = Ed25519.GenerateKeypair();
         var holder = await Holder.CreateAsync(pub, BuildOptions());
         holder.AcceptAttestation(BuildSignedAttestationFor(holder.Did, type: "phone_verified"));
         holder.AcceptAttestation(BuildSignedAttestationFor(holder.Did, type: "human_verified"));
 
-        var presentation = holder.BuildPresentation(
+        var presentation = holder.BuildSignedPresentation(
             verifier: new DidId("did:tessera:some-app"),
             indices: new[] { 1 },
             sessionNonce: RandomBytes(16),
             asOfRevocationEpoch: 0,
             chain: "solana",
-            holderSignature: RandomBytes(64));
+            signChallenge: ch => Ed25519.Sign(priv, ch.Span));
 
         Assert.Equal(holder.Did, presentation.Holder);
         Assert.Single(presentation.Disclosures);
@@ -140,19 +140,19 @@ public class HolderTests
     [Fact]
     public async Task BuildPresentation_ByType_PicksMatchingAttestations()
     {
-        var (_, pub) = Ed25519.GenerateKeypair();
+        var (priv, pub) = Ed25519.GenerateKeypair();
         var holder = await Holder.CreateAsync(pub, BuildOptions());
         holder.AcceptAttestation(BuildSignedAttestationFor(holder.Did, type: "phone_verified"));
         holder.AcceptAttestation(BuildSignedAttestationFor(holder.Did, type: "human_verified"));
         holder.AcceptAttestation(BuildSignedAttestationFor(holder.Did, type: "phone_verified"));
 
-        var presentation = holder.BuildPresentation(
+        var presentation = holder.BuildSignedPresentation(
             verifier: new DidId("did:tessera:some-app"),
             attestationTypes: new[] { "phone_verified" },
             sessionNonce: RandomBytes(16),
             asOfRevocationEpoch: 0,
             chain: "solana",
-            holderSignature: RandomBytes(64));
+            signChallenge: ch => Ed25519.Sign(priv, ch.Span));
 
         Assert.Equal(2, presentation.Disclosures.Count);
         Assert.All(presentation.Disclosures, d => Assert.Equal("phone_verified", d.Attestation.Type));
@@ -161,33 +161,33 @@ public class HolderTests
     [Fact]
     public async Task BuildPresentation_NoMatchingType_Throws()
     {
-        var (_, pub) = Ed25519.GenerateKeypair();
+        var (priv, pub) = Ed25519.GenerateKeypair();
         var holder = await Holder.CreateAsync(pub, BuildOptions());
         holder.AcceptAttestation(BuildSignedAttestationFor(holder.Did, type: "phone_verified"));
 
-        Assert.Throws<InvalidOperationException>(() => holder.BuildPresentation(
+        Assert.Throws<InvalidOperationException>(() => holder.BuildSignedPresentation(
             verifier: new DidId("did:tessera:app"),
             attestationTypes: new[] { "wallet_verified" },
             sessionNonce: RandomBytes(16),
             asOfRevocationEpoch: 0,
             chain: "solana",
-            holderSignature: RandomBytes(64)));
+            signChallenge: ch => Ed25519.Sign(priv, ch.Span)));
     }
 
     [Fact]
     public async Task BuildPresentation_OutOfRangeIndex_Throws()
     {
-        var (_, pub) = Ed25519.GenerateKeypair();
+        var (priv, pub) = Ed25519.GenerateKeypair();
         var holder = await Holder.CreateAsync(pub, BuildOptions());
         holder.AcceptAttestation(BuildSignedAttestationFor(holder.Did));
 
-        Assert.Throws<ArgumentOutOfRangeException>(() => holder.BuildPresentation(
+        Assert.Throws<ArgumentOutOfRangeException>(() => holder.BuildSignedPresentation(
             verifier: new DidId("did:tessera:app"),
             indices: new[] { 99 },
             sessionNonce: RandomBytes(16),
             asOfRevocationEpoch: 0,
             chain: "solana",
-            holderSignature: RandomBytes(64)));
+            signChallenge: ch => Ed25519.Sign(priv, ch.Span)));
     }
 
     [Fact]

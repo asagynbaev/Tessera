@@ -1,5 +1,7 @@
 namespace Tessera.Channels;
 
+using System.Security.Cryptography;
+
 /// <summary>
 /// Source of the secret pepper used by <see cref="ChannelBindingService"/>.
 /// The pepper is the only thing standing between a low-entropy identifier (phone, email,
@@ -22,6 +24,56 @@ public interface IPepperProvider
 }
 
 /// <summary>
+/// Shared validation for pepper material. The pepper MUST come from a CSPRNG
+/// (e.g. <see cref="RandomNumberGenerator"/>). Length alone is not enough: an all-zero or
+/// otherwise grossly low-entropy buffer of the right length offers no protection against a
+/// brute-force preimage attack on a commitment, so it is rejected here.
+/// </summary>
+internal static class PepperValidation
+{
+    public const int MinLength = 32;
+
+    /// <summary>
+    /// Throws if <paramref name="pepper"/> is shorter than <see cref="MinLength"/>, is all-zero, or
+    /// is grossly low-entropy (too few distinct byte values to plausibly be CSPRNG output).
+    /// </summary>
+    /// <param name="pepper">The candidate pepper bytes to validate.</param>
+    /// <param name="throwFactory">
+    /// Builds the exception to throw, given a human-readable reason. Lets callers raise the kind of
+    /// exception their existing contract documents (e.g. <see cref="ArgumentException"/> at
+    /// construction vs. <see cref="InvalidOperationException"/> after an env decode).
+    /// </param>
+    public static void Validate(ReadOnlySpan<byte> pepper, Func<string, Exception> throwFactory)
+    {
+        if (pepper.Length < MinLength)
+            throw throwFactory($"Pepper must be at least {MinLength} bytes (got {pepper.Length}).");
+
+        // Reject an all-zero buffer outright (the classic "forgot to seed it" mistake).
+        var allZero = true;
+        Span<bool> seen = stackalloc bool[256];
+        var distinct = 0;
+        foreach (var b in pepper)
+        {
+            if (b != 0) allZero = false;
+            if (!seen[b]) { seen[b] = true; distinct++; }
+        }
+
+        if (allZero)
+            throw throwFactory(
+                "Pepper is all-zero bytes — this provides no security. Generate it from a CSPRNG " +
+                "(e.g. RandomNumberGenerator.GetBytes(32)).");
+
+        // Grossly low entropy: a CSPRNG-generated 32+ byte value will, with overwhelming probability,
+        // contain many distinct byte values. A handful of distinct values means the buffer was almost
+        // certainly not random (e.g. a repeated pattern). Fail closed.
+        if (distinct < 8)
+            throw throwFactory(
+                $"Pepper has grossly low entropy (only {distinct} distinct byte values). It must come " +
+                "from a CSPRNG (e.g. RandomNumberGenerator.GetBytes(32)).");
+    }
+}
+
+/// <summary>
 /// In-memory pepper provider. Suitable for tests and offline development.
 /// Do NOT use in production — the pepper lives in process memory at construction time
 /// and is never refreshed.
@@ -32,10 +84,7 @@ public sealed class StaticPepperProvider : IPepperProvider
 
     public StaticPepperProvider(ReadOnlyMemory<byte> pepper)
     {
-        if (pepper.Length < 32)
-            throw new ArgumentException(
-                $"Pepper must be at least 32 bytes (got {pepper.Length}).",
-                nameof(pepper));
+        PepperValidation.Validate(pepper.Span, reason => new ArgumentException(reason, nameof(pepper)));
         _pepper = pepper;
     }
 
@@ -72,9 +121,9 @@ public sealed class EnvironmentPepperProvider : IPepperProvider
                     $"Environment variable {environmentVariableName} is not valid Base64.", ex);
             }
 
-            if (bytes.Length < 32)
-                throw new InvalidOperationException(
-                    $"Pepper from {environmentVariableName} must decode to at least 32 bytes (got {bytes.Length}).");
+            PepperValidation.Validate(
+                bytes,
+                reason => new InvalidOperationException($"Pepper from {environmentVariableName} is invalid: {reason}"));
 
             return bytes;
         });

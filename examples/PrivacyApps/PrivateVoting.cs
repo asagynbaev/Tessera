@@ -7,14 +7,19 @@ namespace Tessera.Examples.PrivacyApps
     /// <summary>
     /// Anonymous voting with cryptographic guarantees.
     /// Each voter commits to a binary vote (yes/no) using a Pedersen commitment
-    /// and proves the vote is valid (0 or 1) via a Bulletproofs range proof.
-    /// Individual votes remain hidden. The tally is computed by collecting
+    /// and proves the vote is valid (exactly 0 or 1) via a <b>1-bit</b> Bulletproofs
+    /// range proof. A 1-bit proof attests the committed value lies in [0, 2^1) = {0, 1},
+    /// so a malicious voter cannot commit to a larger value (e.g. 1000) to inflate the
+    /// tally. Individual votes remain hidden. The tally is computed by collecting
     /// ballot openings from voters -- no single party can see individual votes
     /// during the voting phase.
     /// </summary>
     public class PrivateVoting
     {
-        private const int BitSize = 64;
+        // A binary vote is proven with a 1-bit range proof: value ∈ [0, 2^1) = {0, 1}.
+        // Using the full 64-bit width here would accept ANY value in [0, 2^64), letting a
+        // malicious voter inflate the tally (audit finding H13).
+        private const int VoteBits = 1;
 
         /// <summary>
         /// Casts a private vote. Returns a public Ballot (commitment + validity proof)
@@ -25,7 +30,7 @@ namespace Tessera.Examples.PrivacyApps
         {
             long value = voteYes ? 1L : 0L;
             var blinding = Scalar.Random();
-            var (proof, V) = RangeProof.Prove(Scalar.From(value), blinding, BitSize);
+            var (proof, V) = RangeProof.Prove(Scalar.From(value), blinding, VoteBits);
 
             var ballot = new Ballot
             {
@@ -43,8 +48,9 @@ namespace Tessera.Examples.PrivacyApps
         }
 
         /// <summary>
-        /// Verifies that a ballot contains a valid vote (0 or 1) without
-        /// learning which way the voter voted.
+        /// Verifies that a ballot contains a valid binary vote (exactly 0 or 1) without
+        /// learning which way the voter voted. The 1-bit range proof cryptographically
+        /// rejects any commitment to a value outside {0, 1}.
         /// </summary>
         public bool VerifyBallot(Ballot ballot)
         {
@@ -54,7 +60,7 @@ namespace Tessera.Examples.PrivacyApps
             {
                 var V = Point.Decode(ballot.Commitment);
                 var proof = RangeProof.FromBytes(ballot.ValidityProof);
-                return RangeProof.Verify(V, proof, BitSize);
+                return RangeProof.Verify(V, proof, VoteBits);
             }
             catch { return false; }
         }
@@ -108,7 +114,7 @@ namespace Tessera.Examples.PrivacyApps
     {
         /// <summary>Pedersen commitment to the vote value (0 or 1).</summary>
         public byte[] Commitment { get; init; } = Array.Empty<byte>();
-        /// <summary>Range proof proving the vote is valid (0 or 1).</summary>
+        /// <summary>1-bit Bulletproofs range proof proving the committed vote is exactly 0 or 1.</summary>
         public byte[] ValidityProof { get; init; } = Array.Empty<byte>();
     }
 

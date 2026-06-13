@@ -21,7 +21,7 @@ public class AbiContractParityTests
     }
 
     [Theory]
-    [InlineData(typeof(RegisterDidFunction), "registerDid(bytes32,bytes32)")]
+    [InlineData(typeof(RegisterDidFunction), "registerDid(bytes32,bytes32,address,bytes)")]
     [InlineData(typeof(UpdateRootFunction), "updateRoot(bytes32,bytes32)")]
     [InlineData(typeof(BumpRevocationFunction), "bumpRevocation(bytes32,uint8)")]
     [InlineData(typeof(RegisterIssuerFunction), "registerIssuer(bytes32,bytes32,string)")]

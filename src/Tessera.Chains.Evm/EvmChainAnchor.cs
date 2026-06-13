@@ -40,6 +40,10 @@ public sealed class EvmChainAnchor : IChainAnchor
     private readonly BigInteger? _gasLimit;
     private readonly EvmRetryPolicy _retry;
     private readonly TimeProvider _clock;
+    // Used to prove control of the DID when registering (see AnchorRootAsync). The signing key is the
+    // controller; the numeric chainId is bound into the registration signature for replay protection.
+    private readonly string? _signingKey;
+    private readonly BigInteger _numericChainId;
 
     public EvmChainAnchor(EvmChainAnchorOptions options, TimeProvider? clock = null)
     {
@@ -58,19 +62,28 @@ public sealed class EvmChainAnchor : IChainAnchor
         _gasLimit = options.GasLimit;
         _retry = options.Retry;
         _clock = clock ?? TimeProvider.System;
+        _signingKey = options.PrivateKey;
+        _numericChainId = options.ChainId;
     }
 
     /// <summary>
     /// Advanced/testing constructor: inject a pre-built <see cref="IWeb3"/> (custom account,
     /// signer, HTTP client, or test double). The caller is responsible for the signing account.
     /// </summary>
+    /// <param name="signingKey">
+    /// Optional controller private key used to sign DID registrations. Required only if this instance
+    /// will call <see cref="AnchorRootAsync"/> for a not-yet-registered DID (the <c>registerDid</c> path).
+    /// </param>
+    /// <param name="numericChainId">EIP-155 chain id bound into the registration signature.</param>
     internal EvmChainAnchor(
         IWeb3 web3,
         string contractAddress,
         string chainTag,
         BigInteger? gasLimit = null,
         EvmRetryPolicy? retry = null,
-        TimeProvider? clock = null)
+        TimeProvider? clock = null,
+        string? signingKey = null,
+        BigInteger numericChainId = default)
     {
         _web3 = web3 ?? throw new ArgumentNullException(nameof(web3));
         ArgumentNullException.ThrowIfNull(contractAddress);
@@ -81,6 +94,8 @@ public sealed class EvmChainAnchor : IChainAnchor
         _gasLimit = gasLimit;
         _retry = retry ?? EvmRetryPolicy.Default;
         _clock = clock ?? TimeProvider.System;
+        _signingKey = signingKey;
+        _numericChainId = numericChainId;
     }
 
     public string ChainId => _chainTag;
@@ -104,9 +119,10 @@ public sealed class EvmChainAnchor : IChainAnchor
         //  - anchor still absent (the register genuinely failed / never landed): rethrow the
         //    ORIGINAL error so the real failure cause surfaces, not a derived one.
         // This is recovery gated on observed on-chain state, not a blind retry of the write.
+        var register = BuildRegisterDid(didHash, attestationRoot);
         try
         {
-            return await SendAsync(handler, new RegisterDidFunction { DidHash = didHash, AttestationRoot = attestationRoot }, ct).ConfigureAwait(false);
+            return await SendAsync(handler, register, ct).ConfigureAwait(false);
         }
         catch (Exception registerError) when (!ct.IsCancellationRequested)
         {
@@ -174,6 +190,29 @@ public sealed class EvmChainAnchor : IChainAnchor
 
     // ── internals ────────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Build the <c>registerDid</c> call, signing the registration with the controller key so that —
+    /// although <c>didHash</c> is public — only the DID controller can create the anchor (no squatting).
+    /// The controller becomes the on-chain owner; updateRoot / bumpRevocation remain owner-gated.
+    /// </summary>
+    private RegisterDidFunction BuildRegisterDid(byte[] didHash, byte[] attestationRoot)
+    {
+        if (string.IsNullOrWhiteSpace(_signingKey))
+            throw new InvalidOperationException(
+                "Registering a new DID anchor requires a controller signing key, but this EvmChainAnchor " +
+                "was constructed without one (the advanced IWeb3 constructor). Supply 'signingKey' to register DIDs.");
+
+        var controller = EvmRegistrationSigner.DeriveController(_signingKey);
+        var signature = EvmRegistrationSigner.Sign(_signingKey, didHash, attestationRoot, _numericChainId, _contractAddress);
+        return new RegisterDidFunction
+        {
+            DidHash = didHash,
+            AttestationRoot = attestationRoot,
+            Controller = controller,
+            Signature = signature,
+        };
+    }
+
     private async Task<GetAnchorOutputDTO?> QueryAnchorAsync(ContractHandler handler, byte[] didHash, CancellationToken ct)
         => await EvmRetry.RunAsync(
             _retry,
@@ -188,6 +227,11 @@ public sealed class EvmChainAnchor : IChainAnchor
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var receipt = await handler.SendRequestAndWaitForReceiptAsync(fn, cts).ConfigureAwait(false);
+
+        // Nethereum's wait-for-receipt does NOT throw when a transaction is mined but reverted:
+        // the receipt simply carries status 0. Assert success (treat a null status as failure)
+        // so a reverted write never silently returns a "success" result to the caller.
+        EvmTx.EnsureReceiptSucceeded(receipt.Status, receipt.TransactionHash);
 
         ulong? block = receipt.BlockNumber is { } bn ? (ulong)bn.Value : null;
         return new AnchorTxResult(receipt.TransactionHash, block, _clock.GetUtcNow());

@@ -1,5 +1,6 @@
 namespace Tessera.Attestations;
 
+using System.Globalization;
 using System.Text;
 using Tessera.Core;
 
@@ -54,9 +55,32 @@ public static class AttestationCanonical
             foreach (var kv in ordered)
             {
                 w.Write(kv.Key);
-                w.Write(kv.Value?.ToString() ?? "");
+                w.Write(FormatClaimValueInvariant(kv.Value));
             }
         }
         return ms.ToArray();
     }
+
+    /// <summary>
+    /// Culture-INVARIANT string form of a claim value. Numbers, decimals and dates are formatted with
+    /// <see cref="CultureInfo.InvariantCulture"/> so an issuer and a verifier in different locales
+    /// compute the SAME signing bytes — closing the cross-locale verification-DoS where, e.g., a
+    /// <c>double</c> renders as <c>1234.5</c> in one culture and <c>1234,5</c> in another. Plain
+    /// <see cref="string"/> and <see cref="bool"/> already round-trip culture-independently, so their
+    /// bytes are unchanged (the canonical form stays backward-compatible for string-valued claims —
+    /// the only kind Tessera's own sources emit).
+    /// </summary>
+    /// <remarks>
+    /// NOTE (hardening follow-up): this format still does not tag the value's CLR type, so an integer
+    /// <c>123</c> and the string <c>"123"</c> canonicalize identically. Issuers should use
+    /// string-valued claims for cross-implementation determinism; a future major version may switch to
+    /// a type-tagged, length-framed claim encoding (a breaking wire change).
+    /// </remarks>
+    private static string FormatClaimValueInvariant(object? value) => value switch
+    {
+        null => "",
+        string s => s,
+        IFormattable f => f.ToString(null, CultureInfo.InvariantCulture),
+        _ => value.ToString() ?? "",
+    };
 }

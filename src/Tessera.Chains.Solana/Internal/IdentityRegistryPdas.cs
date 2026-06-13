@@ -11,6 +11,7 @@ namespace Tessera.Chains.Solana.Internal;
 /// <remarks>
 /// Seeds (must match Rust exactly):
 /// <list type="bullet">
+///   <item><c>[b"config"]</c> → <see cref="RegistryConfig"/> (singleton)</item>
 ///   <item><c>[b"did", did_hash]</c> → <see cref="DidAnchor"/></item>
 ///   <item><c>[b"issuer", issuer_did_hash]</c> → <see cref="Issuer"/></item>
 /// </list>
@@ -19,6 +20,16 @@ internal static class IdentityRegistryPdas
 {
     private static readonly byte[] DidSeed = Encoding.UTF8.GetBytes("did");
     private static readonly byte[] IssuerSeed = Encoding.UTF8.GetBytes("issuer");
+    private static readonly byte[] ConfigSeed = Encoding.UTF8.GetBytes("config");
+
+    /// <summary>Derive the singleton <c>RegistryConfig</c> PDA (<c>[b"config"]</c>).</summary>
+    public static (PublicKey Pda, byte Bump) RegistryConfig(PublicKey programId)
+    {
+        var seeds = new List<byte[]> { ConfigSeed };
+        if (!PublicKey.TryFindProgramAddress(seeds, programId, out var pda, out var bump))
+            throw new InvalidOperationException("Failed to derive RegistryConfig PDA.");
+        return (pda, bump);
+    }
 
     public static (PublicKey Pda, byte Bump) DidAnchor(PublicKey programId, ReadOnlySpan<byte> didHash)
     {

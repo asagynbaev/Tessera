@@ -12,7 +12,7 @@ namespace Tessera.Sdk.Tests;
 /// </summary>
 public class PolicyVerificationFlowTests
 {
-    private sealed record Fixture(Holder Holder, InMemoryChainAnchor Chain, Issuer Issuer, InMemoryIssuerRegistry Registry, Ed25519Verifier Sig);
+    private sealed record Fixture(Holder Holder, byte[] HolderPriv, InMemoryChainAnchor Chain, Issuer Issuer, InMemoryIssuerRegistry Registry, Ed25519Verifier Sig);
 
     private static async Task<Fixture> BuildAsync()
     {
@@ -24,7 +24,7 @@ public class PolicyVerificationFlowTests
         var issuer = new Issuer(new DidId("did:tessera:kyc-issuer"), new Ed25519IssuerSigner(issuerPriv));
         registry.Register(issuer.BuildRegistryRecord("https://schemas.tessera/kyc/v1"));
 
-        var (_, holderPub) = Ed25519.GenerateKeypair();
+        var (holderPriv, holderPub) = Ed25519.GenerateKeypair();
         var holder = await Holder.CreateAsync(holderPub, new HolderOptions
         {
             Store = new Tessera.Did.InMemoryDidStore(),
@@ -32,7 +32,7 @@ public class PolicyVerificationFlowTests
             ChainAnchor = chain,
         });
 
-        return new Fixture(holder, chain, issuer, registry, sig);
+        return new Fixture(holder, holderPriv, chain, issuer, registry, sig);
     }
 
     private static byte[] Rand(int n)
@@ -59,7 +59,7 @@ public class PolicyVerificationFlowTests
 
         var verifierDid = new DidId("did:tessera:token-gate");
         var nonce = Rand(16);
-        var presentation = f.Holder.BuildPresentation(verifierDid, new[] { "kyc_verified", "jurisdiction" }, nonce, 0, "test", Rand(64));
+        var presentation = f.Holder.BuildSignedPresentation(verifierDid, new[] { "kyc_verified", "jurisdiction" }, nonce, 0, "test", ch => Ed25519.Sign(f.HolderPriv, ch.Span));
 
         var result = await NewVerifier(f).VerifyPresentationAsync(presentation, new VerificationPolicy
         {
@@ -82,7 +82,7 @@ public class PolicyVerificationFlowTests
         var verifierDid = new DidId("did:tessera:token-gate");
         var nonce = Rand(16);
         // discloses only kyc_verified, but policy also requires jurisdiction
-        var presentation = f.Holder.BuildPresentation(verifierDid, new[] { "kyc_verified" }, nonce, 0, "test", Rand(64));
+        var presentation = f.Holder.BuildSignedPresentation(verifierDid, new[] { "kyc_verified" }, nonce, 0, "test", ch => Ed25519.Sign(f.HolderPriv, ch.Span));
 
         var result = await NewVerifier(f).VerifyPresentationAsync(presentation, new VerificationPolicy
         {
@@ -108,7 +108,7 @@ public class PolicyVerificationFlowTests
 
         var verifierDid = new DidId("did:tessera:token-gate");
         var nonce = Rand(16);
-        var presentation = f.Holder.BuildPresentation(verifierDid, new[] { "accredited" }, nonce, 0, "test", Rand(64));
+        var presentation = f.Holder.BuildSignedPresentation(verifierDid, new[] { "accredited" }, nonce, 0, "test", ch => Ed25519.Sign(f.HolderPriv, ch.Span));
 
         // Attach a predicate proof (income ≥ 100k) BOUND to the attestation's commitment.
         var bundle = cp.ProveBoundMinimum(actualValue: 120_000, minimumRequired: 100_000, opening, label: "income");
@@ -135,7 +135,7 @@ public class PolicyVerificationFlowTests
 
         var verifierDid = new DidId("did:tessera:token-gate");
         var nonce = Rand(16);
-        var presentation = f.Holder.BuildPresentation(verifierDid, new[] { "accredited" }, nonce, 0, "test", Rand(64));
+        var presentation = f.Holder.BuildSignedPresentation(verifierDid, new[] { "accredited" }, nonce, 0, "test", ch => Ed25519.Sign(f.HolderPriv, ch.Span));
 
         var result = await NewVerifier(f).VerifyPresentationAsync(presentation, new VerificationPolicy
         {
@@ -157,7 +157,7 @@ public class PolicyVerificationFlowTests
         await f.Holder.AnchorRootAsync();
 
         var nonce = Rand(16);
-        var presentation = f.Holder.BuildPresentation(new DidId("did:tessera:real"), new[] { "kyc_verified" }, nonce, 0, "test", Rand(64));
+        var presentation = f.Holder.BuildSignedPresentation(new DidId("did:tessera:real"), new[] { "kyc_verified" }, nonce, 0, "test", ch => Ed25519.Sign(f.HolderPriv, ch.Span));
 
         var result = await NewVerifier(f).VerifyPresentationAsync(presentation, new VerificationPolicy
         {

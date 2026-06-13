@@ -69,6 +69,8 @@ contract IdentityRegistry {
     error NotAuthority();
     error SchemaUriTooLong();
     error ZeroAuthority();
+    error ZeroController();
+    error InvalidSignature();
 
     modifier onlyAuthority() {
         if (msg.sender != authority) revert NotAuthority();
@@ -84,23 +86,70 @@ contract IdentityRegistry {
 
     // ── DID anchors ──────────────────────────────────────────────────────────
 
-    /// @notice Create a new DID anchor. Caller becomes the anchor `owner`.
+    /// @notice Create a new DID anchor, binding it to the `controller` who proved control of the DID
+    ///         by signing the registration. Because `didHash` is public, anyone could otherwise
+    ///         front-run / squat a DID and have the off-chain verifier trust their root; requiring a
+    ///         controller signature ensures only the DID controller can create the anchor, and the
+    ///         transaction may be relayed by any sender (the controller need not pay gas).
+    ///         The `controller` becomes the anchor `owner`; updateRoot / bumpRevocation stay owner-gated.
     ///         Mirrors Solana `register_did`.
     /// @param didHash          SHA-256(utf8(did)) — the chain-agnostic DID hash.
     /// @param attestationRoot  32-byte Merkle root of the holder's attestation bundle.
-    function registerDid(bytes32 didHash, bytes32 attestationRoot) external {
+    /// @param controller       address whose key controls the DID; becomes the anchor owner.
+    /// @param signature        65-byte ECDSA signature (r‖s‖v) by `controller` over the EIP-191
+    ///                         personal-sign digest of
+    ///                         keccak256(abi.encode(didHash, attestationRoot, block.chainid, address(this))).
+    ///                         Binding chainid + contract address prevents cross-chain / cross-contract replay.
+    function registerDid(
+        bytes32 didHash,
+        bytes32 attestationRoot,
+        address controller,
+        bytes calldata signature
+    ) external {
+        if (controller == address(0)) revert ZeroController();
+
         DidAnchor storage a = _anchors[didHash];
         if (a.exists) revert AlreadyRegistered();
 
+        bytes32 structHash = keccak256(abi.encode(didHash, attestationRoot, block.chainid, address(this)));
+        bytes32 digest = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", structHash));
+        if (_recover(digest, signature) != controller) revert InvalidSignature();
+
         a.exists = true;
         a.accountVersion = ACCOUNT_VERSION;
-        a.owner = msg.sender;
+        a.owner = controller;
         a.attestationRoot = attestationRoot;
         a.revocationEpoch = 0;
         a.createdAt = uint64(block.timestamp);
         a.updatedAt = a.createdAt;
 
-        emit DidRegistered(didHash, msg.sender, attestationRoot);
+        emit DidRegistered(didHash, controller, attestationRoot);
+    }
+
+    /// @dev Recover the signer of `digest` from a 65-byte (r‖s‖v) ECDSA `signature`. Rejects
+    ///      malformed lengths, the high-S malleability range (EIP-2), and the zero address.
+    function _recover(bytes32 digest, bytes calldata signature) private pure returns (address) {
+        if (signature.length != 65) revert InvalidSignature();
+
+        bytes32 r;
+        bytes32 s;
+        uint8 v;
+        assembly {
+            r := calldataload(signature.offset)
+            s := calldataload(add(signature.offset, 32))
+            v := byte(0, calldataload(add(signature.offset, 64)))
+        }
+
+        // EIP-2: reject the upper half of the curve order to block signature malleability.
+        if (uint256(s) > 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0) {
+            revert InvalidSignature();
+        }
+        if (v < 27) v += 27;
+        if (v != 27 && v != 28) revert InvalidSignature();
+
+        address signer = ecrecover(digest, v, r, s);
+        if (signer == address(0)) revert InvalidSignature();
+        return signer;
     }
 
     /// @notice Replace the attestation root for an existing DID. Owner-only.

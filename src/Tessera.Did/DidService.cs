@@ -16,12 +16,40 @@ public sealed class DidService
     private readonly IDidStore _store;
     private readonly ISignatureVerifier _verifier;
     private readonly TimeProvider _clock;
+    private readonly IWalletControlVerifier _walletControl;
+    private readonly INonceStore? _nonceStore;
 
-    public DidService(IDidStore store, ISignatureVerifier verifier, TimeProvider? clock = null)
+    /// <summary>
+    /// Create a DID service.
+    /// </summary>
+    /// <param name="store">DID document store.</param>
+    /// <param name="verifier">Ed25519 signature verifier.</param>
+    /// <param name="clock">Optional clock (defaults to <see cref="TimeProvider.System"/>).</param>
+    /// <param name="walletControl">
+    /// Optional verifier proving a bound wallet <c>Address</c> is genuinely controlled by the
+    /// <c>WalletPublicKey</c>. Defaults to <see cref="DefaultWalletControlVerifier"/>, which handles
+    /// chains whose address is a direct encoding of the Ed25519 key (e.g. Solana) and fails closed
+    /// on every other chain. Supply a custom verifier for exotic chains (EVM, Bitcoin, smart-contract
+    /// or multisig wallets).
+    /// </param>
+    /// <param name="nonceStore">
+    /// Optional anti-replay store. When supplied, <see cref="BindWalletAsync"/> consumes the signed
+    /// wallet-binding nonce atomically so a captured challenge cannot be replayed. When <c>null</c>,
+    /// the nonce is signed but not enforced for single use (legacy behaviour) — supply a store in
+    /// production to close the replay window.
+    /// </param>
+    public DidService(
+        IDidStore store,
+        ISignatureVerifier verifier,
+        TimeProvider? clock = null,
+        IWalletControlVerifier? walletControl = null,
+        INonceStore? nonceStore = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _verifier = verifier ?? throw new ArgumentNullException(nameof(verifier));
         _clock = clock ?? TimeProvider.System;
+        _walletControl = walletControl ?? new DefaultWalletControlVerifier();
+        _nonceStore = nonceStore;
     }
 
     /// <summary>
@@ -64,8 +92,25 @@ public sealed class DidService
         return doc;
     }
 
+    /// <summary>
+    /// Resolve a DID document, whether or not it is revoked. Callers that need to inspect a
+    /// revoked document (e.g. to surface revocation status, or to read its last-known state) use
+    /// this. Callers that must only act on a live identity should prefer <see cref="GetActiveAsync"/>,
+    /// which enforces <see cref="DidDocument.Revoked"/>.
+    /// </summary>
     public Task<DidDocument?> GetAsync(DidId did, CancellationToken ct = default)
         => _store.GetAsync(did, ct);
+
+    /// <summary>
+    /// Resolve a DID document only if it is active. Returns <c>null</c> for an unknown DID
+    /// <em>or</em> a revoked one. This is the defense-in-depth resolve path: it guarantees a caller
+    /// never treats a revoked DID as usable. (All mutating paths already reject revoked DIDs.)
+    /// </summary>
+    public async Task<DidDocument?> GetActiveAsync(DidId did, CancellationToken ct = default)
+    {
+        var doc = await _store.GetAsync(did, ct).ConfigureAwait(false);
+        return doc is { Revoked: false } ? doc : null;
+    }
 
     /// <summary>
     /// Bind a wallet to a DID by verifying that the wallet itself signed a challenge
@@ -89,6 +134,26 @@ public sealed class DidService
         var challenge = BuildWalletChallenge(did, request);
         if (!_verifier.Verify(request.WalletPublicKey, challenge, request.Signature))
             throw new InvalidOperationException("Wallet signature did not verify against the challenge.");
+
+        // The signature only proves control of WalletPublicKey, not of the caller-chosen Address.
+        // Require independent proof that Address is genuinely derived from / controlled by the key,
+        // so a holder cannot bind an address they do not own. DefaultWalletControlVerifier fails
+        // closed on chains it does not understand.
+        if (!_walletControl.VerifiesControl(request.Chain, request.Address, request.WalletPublicKey))
+            throw new InvalidOperationException(
+                $"Wallet address '{request.Address}' is not provably controlled by the supplied public key on chain '{request.Chain}'. " +
+                "Supply an IWalletControlVerifier that understands this chain's address derivation.");
+
+        // Single-use nonce enforcement (when a store is configured): consume atomically and reject
+        // any replay of a previously presented binding challenge.
+        if (_nonceStore is not null)
+        {
+            var fresh = await _nonceStore
+                .TryConsumeAsync(did, request.Nonce, request.Expiry, ct)
+                .ConfigureAwait(false);
+            if (!fresh)
+                throw new InvalidOperationException("Wallet binding nonce has already been used (replay rejected).");
+        }
 
         var binding = new WalletBinding
         {
@@ -115,15 +180,25 @@ public sealed class DidService
     /// byte sequence with its private key; the resulting signature is verified during
     /// <see cref="BindWalletAsync"/>.
     /// </summary>
+    /// <remarks>
+    /// The wallet public key is included (length-prefixed) so the signed message is unambiguously
+    /// bound to the key being attested, not merely to the caller-chosen address. The control of the
+    /// address itself is checked separately via <see cref="IWalletControlVerifier"/>.
+    /// </remarks>
     public static byte[] BuildWalletChallenge(DidId did, WalletBindingRequest request)
     {
-        // Canonical form: "Tessera/v1/wallet-bind" || did || chain || address || nonce || expiry_unix_seconds
+        ArgumentNullException.ThrowIfNull(request);
+        // Canonical form:
+        // "Tessera/v1/wallet-bind" || did || chain || address
+        //   || len(wallet_pubkey) || wallet_pubkey || len(nonce) || nonce || expiry_unix_seconds
         using var ms = new MemoryStream();
         using var w = new BinaryWriter(ms);
         w.Write("Tessera/v1/wallet-bind");
         w.Write(did.Value);
         w.Write(request.Chain);
         w.Write(request.Address);
+        w.Write(request.WalletPublicKey.Length);
+        w.Write(request.WalletPublicKey);
         w.Write(request.Nonce.Length);
         w.Write(request.Nonce);
         w.Write(request.Expiry.ToUnixTimeSeconds());
@@ -175,8 +250,16 @@ public sealed class DidService
     /// </summary>
     /// <remarks>
     /// <para>
+    /// <b>Trusted-caller-only overload.</b> This overload performs NO controller authorization —
+    /// it bumps the document version and writes the binding on the caller's say-so. It exists only
+    /// for hosts that have already authenticated the controller out-of-band (and for backward
+    /// compatibility). Untrusted/remote callers MUST use
+    /// <see cref="AddChannelBindingAsync(DidId, ChannelBinding, ReadOnlyMemory{byte}, CancellationToken)"/>,
+    /// which requires a controller signature over a canonical challenge.
+    /// </para>
+    /// <para>
     /// Multiple bindings of the same type are allowed (e.g. two phone numbers). To remove
-    /// or replace a binding, use <see cref="RemoveChannelBindingAsync"/> first.
+    /// or replace a binding, use <see cref="RemoveChannelBindingAsync(DidId, string, ReadOnlyMemory{byte}, CancellationToken)"/> first.
     /// </para>
     /// <para>
     /// This method bumps the DID document version. The on-chain attestation root is NOT
@@ -197,6 +280,39 @@ public sealed class DidService
         if (doc.Revoked)
             throw new InvalidOperationException($"DID is revoked: {did}.");
 
+        return await AppendBindingAsync(doc, binding, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Authenticated overload of <see cref="AddChannelBindingAsync(DidId, ChannelBinding, CancellationToken)"/>.
+    /// Requires <paramref name="controllerSignature"/> over the canonical "channel-bind" challenge
+    /// (see <see cref="BuildChannelBindChallenge"/>) verified against the DID's controller key, so
+    /// only the controller can attach a binding. Mirrors the revoke-challenge pattern.
+    /// </summary>
+    public async Task<DidDocument> AddChannelBindingAsync(
+        DidId did,
+        ChannelBinding binding,
+        ReadOnlyMemory<byte> controllerSignature,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(binding);
+        if (binding.Commitment is null || binding.Commitment.Length == 0)
+            throw new ArgumentException("Channel binding commitment must not be empty.", nameof(binding));
+
+        var doc = await GetRequiredAsync(did, ct).ConfigureAwait(false);
+        if (doc.Revoked)
+            throw new InvalidOperationException($"DID is revoked: {did}.");
+
+        var controllerKey = ResolveControllerKey(doc);
+        var challenge = BuildChannelBindChallenge(did, doc.Version, binding.Type, binding.Commitment);
+        if (!_verifier.Verify(controllerKey, challenge, controllerSignature.Span))
+            throw new InvalidOperationException("Controller signature did not verify against the channel-bind challenge.");
+
+        return await AppendBindingAsync(doc, binding, ct).ConfigureAwait(false);
+    }
+
+    private async Task<DidDocument> AppendBindingAsync(DidDocument doc, ChannelBinding binding, CancellationToken ct)
+    {
         var updated = doc with
         {
             Bindings = doc.Bindings.Append(binding).ToArray(),
@@ -211,6 +327,12 @@ public sealed class DidService
     /// Remove a channel binding by type + commitment. Returns the updated document, or the
     /// unmodified one if no matching binding was found.
     /// </summary>
+    /// <remarks>
+    /// <b>Trusted-caller-only overload.</b> Performs NO controller authorization. Untrusted/remote
+    /// callers MUST use
+    /// <see cref="RemoveChannelBindingAsync(DidId, string, ReadOnlyMemory{byte}, ReadOnlyMemory{byte}, CancellationToken)"/>,
+    /// which requires a controller signature over a canonical "channel-unbind" challenge.
+    /// </remarks>
     public async Task<DidDocument> RemoveChannelBindingAsync(
         DidId did,
         string channelType,
@@ -223,6 +345,41 @@ public sealed class DidService
         if (doc.Revoked)
             throw new InvalidOperationException($"DID is revoked: {did}.");
 
+        return await RemoveBindingAsync(doc, channelType, commitment, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Authenticated overload of <see cref="RemoveChannelBindingAsync(DidId, string, ReadOnlyMemory{byte}, CancellationToken)"/>.
+    /// Requires <paramref name="controllerSignature"/> over the canonical "channel-unbind" challenge
+    /// (see <see cref="BuildChannelUnbindChallenge"/>) verified against the DID's controller key.
+    /// </summary>
+    public async Task<DidDocument> RemoveChannelBindingAsync(
+        DidId did,
+        string channelType,
+        ReadOnlyMemory<byte> commitment,
+        ReadOnlyMemory<byte> controllerSignature,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(channelType);
+
+        var doc = await GetRequiredAsync(did, ct).ConfigureAwait(false);
+        if (doc.Revoked)
+            throw new InvalidOperationException($"DID is revoked: {did}.");
+
+        var controllerKey = ResolveControllerKey(doc);
+        var challenge = BuildChannelUnbindChallenge(did, doc.Version, channelType, commitment.Span);
+        if (!_verifier.Verify(controllerKey, challenge, controllerSignature.Span))
+            throw new InvalidOperationException("Controller signature did not verify against the channel-unbind challenge.");
+
+        return await RemoveBindingAsync(doc, channelType, commitment, ct).ConfigureAwait(false);
+    }
+
+    private async Task<DidDocument> RemoveBindingAsync(
+        DidDocument doc,
+        string channelType,
+        ReadOnlyMemory<byte> commitment,
+        CancellationToken ct)
+    {
         var commitmentArray = commitment.ToArray();
         var filtered = doc.Bindings
             .Where(b => !(b.Type == channelType && b.Commitment.AsSpan().SequenceEqual(commitmentArray)))
@@ -241,32 +398,72 @@ public sealed class DidService
         return updated;
     }
 
+    /// <summary>
+    /// Canonical challenge a controller signs to authorize attaching a channel binding. Binds the
+    /// DID, current document version (prevents replay across versions), channel type, and commitment.
+    /// </summary>
+    public static byte[] BuildChannelBindChallenge(
+        DidId did,
+        int currentVersion,
+        string channelType,
+        ReadOnlySpan<byte> commitment)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(channelType);
+        using var ms = new MemoryStream();
+        using var w = new BinaryWriter(ms);
+        w.Write("Tessera/v1/channel-bind");
+        w.Write(did.Value);
+        w.Write(currentVersion);
+        w.Write(channelType);
+        w.Write(commitment.Length);
+        w.Write(commitment);
+        return ms.ToArray();
+    }
+
+    /// <summary>
+    /// Canonical challenge a controller signs to authorize removing a channel binding. Binds the
+    /// DID, current document version, channel type, and commitment.
+    /// </summary>
+    public static byte[] BuildChannelUnbindChallenge(
+        DidId did,
+        int currentVersion,
+        string channelType,
+        ReadOnlySpan<byte> commitment)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(channelType);
+        using var ms = new MemoryStream();
+        using var w = new BinaryWriter(ms);
+        w.Write("Tessera/v1/channel-unbind");
+        w.Write(did.Value);
+        w.Write(currentVersion);
+        w.Write(channelType);
+        w.Write(commitment.Length);
+        w.Write(commitment);
+        return ms.ToArray();
+    }
+
     private async Task<DidDocument> GetRequiredAsync(DidId did, CancellationToken ct)
     {
         var doc = await _store.GetAsync(did, ct).ConfigureAwait(false);
         return doc ?? throw new InvalidOperationException($"Unknown DID: {did}.");
     }
 
-    private static byte[] ResolveControllerKey(DidDocument doc)
+    /// <summary>
+    /// Extract the Ed25519 controller public key from a DID document's first verification method.
+    /// This is the key a verifier re-derives the DID from (see <see cref="DidId.FromControllerKey"/>)
+    /// and against which holder/controller signatures are checked.
+    /// </summary>
+    public static byte[] ResolveControllerKey(DidDocument doc)
     {
+        ArgumentNullException.ThrowIfNull(doc);
         var method = doc.VerificationMethods.FirstOrDefault()
             ?? throw new InvalidOperationException("DID document has no verification methods.");
         return FromMultibaseBase58(method.PublicKeyMultibase);
     }
 
-    internal static DidId DeriveDidFromKey(ReadOnlySpan<byte> publicKey)
-    {
-        // Domain-separated digest so that the same pubkey under a different DID method
-        // produces a different identifier. SHA-256 is used here for portability; v2 may
-        // upgrade to BLAKE2b-256 to match the wider DID ecosystem.
-        Span<byte> buf = stackalloc byte[publicKey.Length + 2];
-        publicKey.CopyTo(buf);
-        buf[publicKey.Length] = (byte)'v';
-        buf[publicKey.Length + 1] = (byte)'1';
-        Span<byte> digest = stackalloc byte[32];
-        SHA256.HashData(buf, digest);
-        return new DidId(DidId.MethodPrefix + Base58.Encode(digest));
-    }
+    // Single source of truth lives in Tessera.Core so layers that cannot reference Tessera.Did
+    // (e.g. the Attestations presentation verifier) can re-derive a DID from a controller key.
+    internal static DidId DeriveDidFromKey(ReadOnlySpan<byte> publicKey) => DidId.FromControllerKey(publicKey);
 
     private static string ToMultibaseBase58(ReadOnlySpan<byte> publicKey)
         => "z" + Base58.Encode(publicKey);

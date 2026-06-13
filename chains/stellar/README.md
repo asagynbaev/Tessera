@@ -8,7 +8,7 @@ is complete; the Stellar adapter is in progress (anchor contract not yet written
 
 | Component | State |
 |---|---|
-| `contracts/attestation-verifier/` | Working contract from v2.x. Verifies HMAC and Bulletproof-structure on-chain. Kept for backward compatibility with v2.x consumers. |
+| `contracts/attestation-verifier/` | Working contract from v2.x. Verifies issuer Ed25519 signatures and Bulletproof-structure on-chain. Kept for backward compatibility with v2.x consumers. |
 | C# adapter `Tessera.Chains.Stellar` | Scaffolded against `IChainAnchor` but the dedicated anchor contract for storing roots/epochs has not been written yet. The C# side is wired; the Rust contract for anchor-state needs to be added. |
 
 If you need on-chain anchoring of DID roots **today**, use the Solana adapter.
@@ -21,7 +21,9 @@ The contract in [`contracts/attestation-verifier/`](contracts/attestation-verifi
 the v2-era proof verifier (renamed from `proof-balance` to match the new architecture).
 It performs:
 
-- **HMAC-SHA256 verification** — full on-chain recomputation + constant-time compare.
+- **Issuer Ed25519 signature verification** — checks an off-chain issuer's signature over
+  the canonical attestation message (`data || salt`) against the issuer public key stored
+  in instance storage by an authenticated admin. No secret is ever supplied by the caller.
 - **Bulletproof structural validation** — checks compressed-point prefixes and IPA length;
   emits a transcript-binding hash for off-chain auditing. Soroban does not natively
   support secp256k1 EC math, so full Bulletproof verification **must** run off-chain via

@@ -30,7 +30,7 @@ public class EndToEndFlowTests
         registry.Register(issuer.BuildRegistryRecord(schemaUri: "https://schemas.tessera/attestation/v1"));
 
         // ── holder side ─────────────────────────────────────────────────────
-        var (_, holderPub) = Ed25519.GenerateKeypair();
+        var (holderPriv, holderPub) = Ed25519.GenerateKeypair();
         var holderOpts = new HolderOptions
         {
             Store = new Tessera.Did.InMemoryDidStore(),
@@ -49,13 +49,13 @@ public class EndToEndFlowTests
         // ── verifier side ───────────────────────────────────────────────────
         var verifierDid = new DidId("did:tessera:my-relying-app");
         var sessionNonce = RandomBytes(16);
-        var presentation = holder.BuildPresentation(
+        var presentation = holder.BuildSignedPresentation(
             verifier: verifierDid,
             attestationTypes: new[] { "phone_verified" },
             sessionNonce: sessionNonce,
             asOfRevocationEpoch: 0,
             chain: "test",
-            holderSignature: RandomBytes(64));
+            signChallenge: ch => Ed25519.Sign(holderPriv, ch.Span));
 
         var zkpVerifier = new Verifier(new VerifierOptions
         {
@@ -77,19 +77,19 @@ public class EndToEndFlowTests
     [Fact]
     public async Task Verifier_VerifierMismatch_Fails()
     {
-        var (holder, _, chain, issuer, registry, verifier) = await BuildPair();
+        var (holder, holderPriv, chain, issuer, registry, verifier) = await BuildPair();
         var att = issuer.Issue("phone_verified", holder.Did, new AttestationPayload { Method = "x" });
         holder.AcceptAttestation(att);
         await holder.AnchorRootAsync();
 
         var nonce = RandomBytes(16);
-        var presentation = holder.BuildPresentation(
+        var presentation = holder.BuildSignedPresentation(
             verifier: new DidId("did:tessera:app-A"),
             attestationTypes: new[] { "phone_verified" },
             sessionNonce: nonce,
             asOfRevocationEpoch: 0,
             chain: "test",
-            holderSignature: RandomBytes(64));
+            signChallenge: ch => Ed25519.Sign(holderPriv, ch.Span));
 
         var zkpVerifier = new Verifier(new VerifierOptions
         {
@@ -111,19 +111,19 @@ public class EndToEndFlowTests
     [Fact]
     public async Task Verifier_SessionNonceMismatch_Fails()
     {
-        var (holder, _, chain, issuer, registry, verifier) = await BuildPair();
+        var (holder, holderPriv, chain, issuer, registry, verifier) = await BuildPair();
         holder.AcceptAttestation(issuer.Issue("phone_verified", holder.Did, new AttestationPayload { Method = "x" }));
         await holder.AnchorRootAsync();
 
         var verifierDid = new DidId("did:tessera:app");
         var presentationNonce = RandomBytes(16);
-        var presentation = holder.BuildPresentation(
+        var presentation = holder.BuildSignedPresentation(
             verifier: verifierDid,
             attestationTypes: new[] { "phone_verified" },
             sessionNonce: presentationNonce,
             asOfRevocationEpoch: 0,
             chain: "test",
-            holderSignature: RandomBytes(64));
+            signChallenge: ch => Ed25519.Sign(holderPriv, ch.Span));
 
         var zkpVerifier = new Verifier(new VerifierOptions
         {
@@ -145,18 +145,18 @@ public class EndToEndFlowTests
     [Fact]
     public async Task Verifier_RevocationStale_FailsWhenPolicyDemands()
     {
-        var (holder, _, chain, issuer, registry, verifier) = await BuildPair();
+        var (holder, holderPriv, chain, issuer, registry, verifier) = await BuildPair();
         holder.AcceptAttestation(issuer.Issue("phone_verified", holder.Did, new AttestationPayload { Method = "x" }));
         await holder.AnchorRootAsync();
 
         var verifierDid = new DidId("did:tessera:app");
-        var presentation = holder.BuildPresentation(
+        var presentation = holder.BuildSignedPresentation(
             verifier: verifierDid,
             attestationTypes: new[] { "phone_verified" },
             sessionNonce: RandomBytes(16),
             asOfRevocationEpoch: 0,  // bound to epoch 0
             chain: "test",
-            holderSignature: RandomBytes(64));
+            signChallenge: ch => Ed25519.Sign(holderPriv, ch.Span));
 
         // simulate the on-chain epoch advancing past the presentation's snapshot
         await chain.BumpRevocationAsync(holder.Did, Tessera.Chains.RevocationReason.HolderRequested);
@@ -181,18 +181,18 @@ public class EndToEndFlowTests
     [Fact]
     public async Task Verifier_NoAnchorOnChain_Fails()
     {
-        var (holder, _, chain, issuer, registry, verifier) = await BuildPair();
+        var (holder, holderPriv, chain, issuer, registry, verifier) = await BuildPair();
         // attestation accepted but NEVER anchored
         holder.AcceptAttestation(issuer.Issue("phone_verified", holder.Did, new AttestationPayload { Method = "x" }));
 
         var verifierDid = new DidId("did:tessera:app");
-        var presentation = holder.BuildPresentation(
+        var presentation = holder.BuildSignedPresentation(
             verifier: verifierDid,
             attestationTypes: new[] { "phone_verified" },
             sessionNonce: RandomBytes(16),
             asOfRevocationEpoch: 0,
             chain: "test",
-            holderSignature: RandomBytes(64));
+            signChallenge: ch => Ed25519.Sign(holderPriv, ch.Span));
 
         var zkpVerifier = new Verifier(new VerifierOptions
         {
@@ -213,17 +213,17 @@ public class EndToEndFlowTests
     [Fact]
     public async Task Verifier_WithCallerSuppliedRoot_BypassesChainLookup()
     {
-        var (holder, _, _, issuer, registry, verifier) = await BuildPair();
+        var (holder, holderPriv, _, issuer, registry, verifier) = await BuildPair();
         holder.AcceptAttestation(issuer.Issue("phone_verified", holder.Did, new AttestationPayload { Method = "x" }));
 
         var verifierDid = new DidId("did:tessera:app");
-        var presentation = holder.BuildPresentation(
+        var presentation = holder.BuildSignedPresentation(
             verifier: verifierDid,
             attestationTypes: new[] { "phone_verified" },
             sessionNonce: RandomBytes(16),
             asOfRevocationEpoch: 0,
             chain: "test",
-            holderSignature: RandomBytes(64));
+            signChallenge: ch => Ed25519.Sign(holderPriv, ch.Span));
 
         // No chain anchor configured — caller supplies the expected root directly.
         var zkpVerifier = new Verifier(new VerifierOptions
@@ -245,16 +245,16 @@ public class EndToEndFlowTests
     [Fact]
     public async Task Verifier_NoChainAndNoRoot_Throws()
     {
-        var (holder, _, _, issuer, registry, verifier) = await BuildPair();
+        var (holder, holderPriv, _, issuer, registry, verifier) = await BuildPair();
         holder.AcceptAttestation(issuer.Issue("phone_verified", holder.Did, new AttestationPayload { Method = "x" }));
 
-        var presentation = holder.BuildPresentation(
+        var presentation = holder.BuildSignedPresentation(
             verifier: new DidId("did:tessera:app"),
             attestationTypes: new[] { "phone_verified" },
             sessionNonce: RandomBytes(16),
             asOfRevocationEpoch: 0,
             chain: "test",
-            holderSignature: RandomBytes(64));
+            signChallenge: ch => Ed25519.Sign(holderPriv, ch.Span));
 
         var zkpVerifier = new Verifier(new VerifierOptions
         {
@@ -274,7 +274,7 @@ public class EndToEndFlowTests
 
     private record FlowFixture(
         Holder Holder,
-        byte[] HolderPub,
+        byte[] HolderPriv,
         InMemoryChainAnchor Chain,
         Issuer Issuer,
         InMemoryIssuerRegistry Registry,
@@ -291,7 +291,7 @@ public class EndToEndFlowTests
         var issuer = new Issuer(new DidId("did:tessera:flow-issuer"), issuerSigner);
         registry.Register(issuer.BuildRegistryRecord(schemaUri: "https://schemas.tessera/attestation/v1"));
 
-        var (_, holderPub) = Ed25519.GenerateKeypair();
+        var (holderPriv, holderPub) = Ed25519.GenerateKeypair();
         var holder = await Holder.CreateAsync(holderPub, new HolderOptions
         {
             Store = new Tessera.Did.InMemoryDidStore(),
@@ -299,7 +299,7 @@ public class EndToEndFlowTests
             ChainAnchor = chain,
         });
 
-        return new FlowFixture(holder, holderPub, chain, issuer, registry, verifier);
+        return new FlowFixture(holder, holderPriv, chain, issuer, registry, verifier);
     }
 
     private static byte[] RandomBytes(int n)

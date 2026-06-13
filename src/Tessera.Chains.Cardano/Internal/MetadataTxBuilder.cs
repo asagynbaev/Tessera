@@ -33,11 +33,17 @@ internal sealed class MetadataTxBuilder
         var tip = await _provider.GetTipAsync(ct).ConfigureAwait(false);
         var ttl = tip.Slot + 7200;
 
+        // Authenticate the payload: the controller signs (did_hash‖root‖epoch) and we publish the
+        // public key alongside it, so a reader can verify the metadata was authored by the
+        // controller and not by some other address squatting the shared metadata label.
+        var signature = MetadataAttestation.Sign(_key, didHash, attestationRoot, epoch);
         var (aux, auxHash) = CborTx.BuildMetadataAuxData(
             _label,
             Convert.ToHexString(didHash).ToLowerInvariant(),
             Convert.ToHexString(attestationRoot).ToLowerInvariant(),
-            epoch);
+            epoch,
+            Convert.ToHexString(_key.PublicKey.Key).ToLowerInvariant(),
+            Convert.ToHexString(signature).ToLowerInvariant());
 
         var wallet = await _provider.GetUtxosAsync(_key.Address, ct).ConfigureAwait(false);
         if (wallet.Count == 0)

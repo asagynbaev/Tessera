@@ -139,7 +139,16 @@ namespace Tessera.Cryptography.Bulletproofs
 
         public static InnerProductProof FromBytes(byte[] data)
         {
+            ArgumentNullException.ThrowIfNull(data);
+            // A well-formed proof is exactly 4 + k*33*2 + 64 bytes, so the round count k is fully
+            // determined by the buffer length. Validate that BEFORE allocating Point[k] — otherwise a
+            // crafted k (read straight from attacker bytes) drives an unbounded allocation (DoS).
+            if (data.Length < 4 + 64)
+                throw new FormatException($"InnerProductProof: data too short ({data.Length} bytes).");
             int k = BitConverter.ToInt32(data, 0);
+            if (k < 0 || (long)data.Length != 4L + (long)k * 66 + 64)
+                throw new FormatException(
+                    $"InnerProductProof: declared round count {k} is inconsistent with data length {data.Length}.");
             int offset = 4;
             var ls = new Point[k];
             for (int i = 0; i < k; i++) { ls[i] = Point.Decode(data[offset..(offset + 33)]); offset += 33; }

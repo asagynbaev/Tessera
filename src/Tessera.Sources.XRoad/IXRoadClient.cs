@@ -24,13 +24,26 @@ public sealed record XRoadRegistryRecord
     /// <summary>True if the person was found in the population registry.</summary>
     public required bool PersonFound { get; init; }
 
+    /// <summary>
+    /// The national id the registry SERVER asserted for the matched person, as carried in the
+    /// response body (not echoed from the query). Used by the source to confirm the response is
+    /// about the requested subject. Null when the service contract does not return one — see the
+    /// residual-trust note on <see cref="XRoadAttestationSource"/>.
+    /// </summary>
+    public string? AssertedNationalId { get; init; }
+
     /// <summary>Residency country (ISO-3166 alpha-2), if registered.</summary>
     public string? ResidencyCountry { get; init; }
 
     /// <summary>True if the subject is the confirmed owner of the queried parcel.</summary>
     public bool PropertyOwnershipConfirmed { get; init; }
 
-    /// <summary>The parcel id ownership was confirmed for (echoed for the attestation claim).</summary>
+    /// <summary>
+    /// The parcel id the SERVER asserted ownership for, taken from the response body. The source
+    /// emits this server-asserted value into the <c>parcel_id</c> claim — never the caller's raw
+    /// query parameter — so a caller cannot have a claim minted for a parcel the registry did not
+    /// confirm. Null when the response omits it.
+    /// </summary>
     public string? ParcelId { get; init; }
 
     /// <summary>Encumbrance status on the parcel (e.g. <c>"none"</c>, <c>"mortgage"</c>, <c>"arrest"</c>).</summary>

@@ -176,6 +176,11 @@ namespace Tessera.Cryptography.Bulletproofs
 
         public static RangeProof FromBytes(byte[] data)
         {
+            ArgumentNullException.ThrowIfNull(data);
+            // Fixed header: 4 points (33 each) + 3 scalars (32 each) + a 4-byte inner-product length.
+            const int headerLen = 4 * 33 + 3 * 32 + 4;
+            if (data.Length < headerLen)
+                throw new FormatException($"RangeProof: data too short ({data.Length} bytes).");
             int offset = 0;
             var a = Point.Decode(data[offset..(offset + 33)]); offset += 33;
             var s = Point.Decode(data[offset..(offset + 33)]); offset += 33;
@@ -185,6 +190,11 @@ namespace Tessera.Cryptography.Bulletproofs
             var mu = Scalar.FromBytes(data[offset..(offset + 32)]); offset += 32;
             var tHat = Scalar.FromBytes(data[offset..(offset + 32)]); offset += 32;
             var ipaLen = BitConverter.ToInt32(data, offset); offset += 4;
+            // The inner-product blob must consume exactly the rest of the buffer; reject any other
+            // length before slicing/allocating (closes the same allocation-DoS at this layer).
+            if (ipaLen < 0 || (long)offset + ipaLen != data.Length)
+                throw new FormatException(
+                    $"RangeProof: declared inner-product length {ipaLen} is inconsistent with data length {data.Length}.");
             var ipa = InnerProductProof.FromBytes(data[offset..(offset + ipaLen)]);
             return new RangeProof(a, s, t1, t2, tauX, mu, tHat, ipa);
         }

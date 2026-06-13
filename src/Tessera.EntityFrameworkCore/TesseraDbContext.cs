@@ -44,7 +44,13 @@ public class TesseraDbContext : DbContext
             e.Property(x => x.Controller).HasMaxLength(256).IsRequired();
             e.Property(x => x.AttestationRoot).HasMaxLength(32);
             e.Property(x => x.Revoked).IsRequired();
-            e.Property(x => x.Version).IsRequired();
+
+            // Optimistic concurrency: Version is bumped by DidService on every mutation.
+            // Marking it a concurrency token makes EF emit UPDATE ... WHERE Id=@id AND Version=@original,
+            // so a stale write (whose original Version no longer matches the row) affects 0 rows
+            // and throws DbUpdateConcurrencyException instead of silently clobbering a concurrent
+            // commit (e.g. resurrecting a revoked DID). See EfCoreDidStore.SaveAsync.
+            e.Property(x => x.Version).IsRequired().IsConcurrencyToken();
             e.Property(x => x.CreatedAt).IsRequired();
             e.Property(x => x.UpdatedAt).IsRequired();
 

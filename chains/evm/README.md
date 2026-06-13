@@ -21,7 +21,7 @@ Operations (parity with the Solana program):
 
 | Function | Caller | Effect |
 |---|---|---|
-| `registerDid(didHash, attestationRoot)` | DID owner (becomes `owner`) | Create the DID anchor. |
+| `registerDid(didHash, attestationRoot, controller, signature)` | Anyone (relayer); `controller` becomes `owner` | Create the DID anchor. Requires a `controller` ECDSA signature so a public `didHash` cannot be squatted. |
 | `updateRoot(didHash, newRoot)` | DID owner | Replace the attestation Merkle root. |
 | `bumpRevocation(didHash, reason)` | DID owner | Increment the revocation epoch — prior presentations are stale. |
 | `registerIssuer(issuerDidHash, signingKey, schemaUri)` | Registry authority | Add/refresh an issuer record. |
@@ -29,6 +29,15 @@ Operations (parity with the Solana program):
 
 `didHash = SHA-256(utf8(did))` — identical across the C# adapter, the Solana program,
 and this contract, so a DID hashes to the same value on every backend.
+
+`registerDid` binds the anchor to the DID **controller**, not merely the first caller. Because
+`didHash` is public, an unauthenticated `registerDid` would let an attacker front-run / squat any
+DID and have the off-chain verifier trust their root. The caller must therefore supply
+`controller` (the address that becomes `owner`) plus a 65-byte EIP-191/ECDSA `signature` by that
+controller over `keccak256(abi.encode(didHash, attestationRoot, block.chainid, address(this)))`.
+Binding `block.chainid` + the registry address prevents cross-chain / cross-contract replay; the
+transaction may be relayed by any sender, so the controller need not pay gas. The C# adapter
+(`EvmChainAnchor`) produces this signature automatically from its configured signing key.
 
 `contracts/Allowlist.sol` — a minimal agent-gated address allowlist / transfer-restriction
 registry (`addToAllowlist` / `removeFromAllowlist` / `isAllowed`). The C# `EvmAllowlistGateway`

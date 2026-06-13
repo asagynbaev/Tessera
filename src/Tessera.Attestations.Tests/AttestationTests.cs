@@ -37,6 +37,28 @@ public class AttestationTests
         }
     }
 
+    /// <summary>
+    /// A holder controller keypair backed by the same SHA-256(priv ‖ message) stub scheme. The 32-byte
+    /// public key doubles as the controller key, so <see cref="DidId.FromControllerKey"/> derives the
+    /// holder DID and the matching <see cref="StubVerifier"/> authenticates the presentation signature.
+    /// </summary>
+    private static (byte[] priv, byte[] pub, DidId did, StubVerifier verifier) BuildHolder()
+    {
+        var priv = RandomNumberGenerator.GetBytes(32);
+        var pub = SHA256.HashData(priv); // exactly 32 bytes → valid controller key
+        return (priv, pub, DidId.FromControllerKey(pub), new StubVerifier(priv, pub));
+    }
+
+    /// <summary>Sign the canonical presentation challenge with the holder stub signer.</summary>
+    private static byte[] SignChallenge(byte[] holderPriv, Presentation presentation)
+    {
+        var challenge = PresentationChallenge.Compute(presentation);
+        var buf = new byte[holderPriv.Length + challenge.Length];
+        Buffer.BlockCopy(holderPriv, 0, buf, 0, holderPriv.Length);
+        Buffer.BlockCopy(challenge, 0, buf, holderPriv.Length, challenge.Length);
+        return SHA256.HashData(buf);
+    }
+
     private static (DidId issuerDid, AttestationIssuer issuer, AttestationVerifier verifier, IssuerRecord record)
         BuildPair(string algorithm = "ed25519")
     {
@@ -161,7 +183,7 @@ public class AttestationTests
     public async Task Bundle_Disclosure_VerifiesEndToEnd()
     {
         var (_, issuer, attestationVerifier, _) = BuildPair();
-        var holder = new DidId("did:tessera:holder1");
+        var (holderPriv, holderPub, holder, holderVerifier) = BuildHolder();
 
         var atts = new[]
         {
@@ -182,21 +204,26 @@ public class AttestationTests
                 SessionNonce = new byte[16],
                 AsOfRevocationEpoch = 0,
                 Chain = "solana",
-                HolderSignature = new byte[32],
+                HolderSignature = new byte[64], // placeholder, replaced below
+                HolderPublicKey = holderPub,
                 CreatedAt = DateTimeOffset.UtcNow,
             },
         };
+        presentation = presentation with
+        {
+            Binding = presentation.Binding with { HolderSignature = SignChallenge(holderPriv, presentation) },
+        };
 
-        var verifier = new PresentationVerifier(attestationVerifier);
+        var verifier = new PresentationVerifier(attestationVerifier, holderVerifier);
         var result = await verifier.VerifyAsync(presentation, bundle.Root);
-        Assert.True(result.Valid);
+        Assert.True(result.Valid, result.Reason);
     }
 
     [Fact]
     public async Task Bundle_WrongRoot_Fails()
     {
         var (_, issuer, attestationVerifier, _) = BuildPair();
-        var holder = new DidId("did:tessera:holder1");
+        var (holderPriv, holderPub, holder, holderVerifier) = BuildHolder();
         var atts = new[]
         {
             issuer.Issue("phone_verified", holder, new AttestationPayload { Method = "x" }),
@@ -213,14 +240,19 @@ public class AttestationTests
                 SessionNonce = new byte[16],
                 AsOfRevocationEpoch = 0,
                 Chain = "solana",
-                HolderSignature = new byte[32],
+                HolderSignature = new byte[64], // placeholder, replaced below
+                HolderPublicKey = holderPub,
                 CreatedAt = DateTimeOffset.UtcNow,
             },
+        };
+        presentation = presentation with
+        {
+            Binding = presentation.Binding with { HolderSignature = SignChallenge(holderPriv, presentation) },
         };
 
         // Wrong root: zeroed
         var bogusRoot = new byte[32];
-        var verifier = new PresentationVerifier(attestationVerifier);
+        var verifier = new PresentationVerifier(attestationVerifier, holderVerifier);
         var result = await verifier.VerifyAsync(presentation, bogusRoot);
         Assert.False(result.Valid);
         Assert.Equal("root_not_anchored", result.Reason);
@@ -231,13 +263,15 @@ public class AttestationTests
     {
         var (_, issuer, attestationVerifier, _) = BuildPair();
         var subjectA = new DidId("did:tessera:A");
-        var subjectB = new DidId("did:tessera:B");
+        // subjectB is the presenter: a real keypair-derived DID so the holder-signature check passes
+        // and verification reaches the subject_mismatch check inside the disclosure loop.
+        var (holderPriv, holderPub, subjectB, holderVerifier) = BuildHolder();
         var att = issuer.Issue("human_verified", subjectA, new AttestationPayload { Method = "x" });
         var bundle = new AttestationBundle(new[] { att });
 
         var presentation = new Presentation
         {
-            Holder = subjectB, // mismatch
+            Holder = subjectB, // mismatch with the attestation subject (subjectA)
             Disclosures = new[] { bundle.DisclosureFor(0) },
             Binding = new PresentationBinding
             {
@@ -245,11 +279,16 @@ public class AttestationTests
                 SessionNonce = new byte[16],
                 AsOfRevocationEpoch = 0,
                 Chain = "solana",
-                HolderSignature = new byte[32],
+                HolderSignature = new byte[64], // placeholder, replaced below
+                HolderPublicKey = holderPub,
                 CreatedAt = DateTimeOffset.UtcNow,
             },
         };
-        var verifier = new PresentationVerifier(attestationVerifier);
+        presentation = presentation with
+        {
+            Binding = presentation.Binding with { HolderSignature = SignChallenge(holderPriv, presentation) },
+        };
+        var verifier = new PresentationVerifier(attestationVerifier, holderVerifier);
         var result = await verifier.VerifyAsync(presentation, bundle.Root);
         Assert.False(result.Valid);
         Assert.Equal("subject_mismatch", result.Reason);

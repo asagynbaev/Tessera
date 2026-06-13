@@ -45,6 +45,7 @@ public class PolicyEvaluationTests
             AsOfRevocationEpoch = 0,
             Chain = "test",
             HolderSignature = new byte[64],
+            HolderPublicKey = new byte[32],
             CreatedAt = DateTimeOffset.UnixEpoch,
         },
     };

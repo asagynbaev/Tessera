@@ -20,10 +20,16 @@ public class ComplianceFlowTests
     // ── plugin client fakes (stand in for Sumsub / X-Road services) ──────────
     private sealed class FakeSumsub : ISumsubClient
     {
+        // Sumsub binds an applicant to a subject via externalUserId. The source enforces that this
+        // equals the subject DID (identity-transplant guard), so the fake echoes the holder DID that
+        // the onboarding flow would have set on the applicant at creation time.
+        public string? ExternalUserId { get; set; }
+
         public Task<SumsubApplicantReview?> GetApplicantReviewAsync(string applicantId, CancellationToken ct = default)
             => Task.FromResult<SumsubApplicantReview?>(new SumsubApplicantReview
             {
-                ApplicantId = applicantId, Approved = true, ReviewAnswer = "GREEN", LevelName = "id-and-liveness", Country = "KZ",
+                ApplicantId = applicantId, Approved = true, ReviewAnswer = "GREEN", LevelName = "id-and-liveness",
+                Country = "KZ", ExternalUserId = ExternalUserId,
             });
     }
 
@@ -57,20 +63,24 @@ public class ComplianceFlowTests
         var (issuerPriv, _) = Ed25519.GenerateKeypair();
         using var issuerSigner = new Ed25519IssuerSigner(issuerPriv);
         var issuer = new Issuer(new DidId("did:tessera:compliance-issuer"), issuerSigner);
-        var pipeline = new IssuancePipeline(
-            issuer,
-            new IAttestationSource[] { new SumsubAttestationSource(new FakeSumsub()), new XRoadAttestationSource(new FakeXRoad()) },
-            registry,
-            SchemaRegistry.StandardSchemas[0].SchemaUri);
 
         // ── holder (alice) creates a DID and is onboarded ──────────────────────
-        var (_, holderPub) = Ed25519.GenerateKeypair();
+        var (holderPriv, holderPub) = Ed25519.GenerateKeypair();
         var holder = await Holder.CreateAsync(holderPub, new HolderOptions
         {
             Store = new InMemoryDidStore(),
             SignatureVerifier = sigVerifier,
             ChainAnchor = chain,
         });
+
+        // The Sumsub applicant is bound to this holder's DID via externalUserId so the source's
+        // identity-transplant guard admits the kyc_verified draft.
+        var sumsub = new FakeSumsub { ExternalUserId = holder.Did.Value };
+        var pipeline = new IssuancePipeline(
+            issuer,
+            new IAttestationSource[] { new SumsubAttestationSource(sumsub), new XRoadAttestationSource(new FakeXRoad()) },
+            registry,
+            SchemaRegistry.StandardSchemas[0].SchemaUri);
 
         var subject = new SubjectContext
         {
@@ -94,10 +104,10 @@ public class ComplianceFlowTests
         // ── admission: verify presentation against the compliance policy ───────
         var verifier = new Verifier(new VerifierOptions { IssuerRegistry = registry, SignatureVerifier = sigVerifier, ChainAnchor = chain });
         var nonce = Rand(16);
-        var presentation = holder.BuildPresentation(
+        var presentation = holder.BuildSignedPresentation(
             VerifierDid,
             new[] { AttestationTypes.KycVerified, AttestationTypes.Jurisdiction },
-            nonce, asOfRevocationEpoch: 0, chain: chain.ChainId, holderSignature: Rand(64));
+            nonce, asOfRevocationEpoch: 0, chain: chain.ChainId, signChallenge: ch => Ed25519.Sign(holderPriv, ch.Span));
 
         var admission = await verifier.VerifyPresentationAsync(presentation, CompliancePolicies.BaseAdmission(VerifierDid, nonce));
         Assert.True(admission.Valid, $"admission rejected: {admission.Reason}");
@@ -140,7 +150,7 @@ public class ComplianceFlowTests
         var issuer = new Issuer(new DidId("did:tessera:compliance-issuer"), issuerSigner);
         registry.Register(issuer.BuildRegistryRecord(SchemaRegistry.StandardSchemas[0].SchemaUri));
 
-        var (_, holderPub) = Ed25519.GenerateKeypair();
+        var (holderPriv, holderPub) = Ed25519.GenerateKeypair();
         var holder = await Holder.CreateAsync(holderPub, new HolderOptions
         {
             Store = new InMemoryDidStore(), SignatureVerifier = sigVerifier, ChainAnchor = chain,
@@ -160,7 +170,7 @@ public class ComplianceFlowTests
         await holder.AnchorRootAsync();
 
         var nonce = Rand(16);
-        var presentation = BuildPresentationWithPredicate(holder, incomeProof, nonce, chain.ChainId);
+        var presentation = BuildPresentationWithPredicate(holder, holderPriv, holderPub, incomeProof, nonce, chain.ChainId);
 
         var verifier = new Verifier(new VerifierOptions { IssuerRegistry = registry, SignatureVerifier = sigVerifier, ChainAnchor = chain });
 
@@ -186,7 +196,7 @@ public class ComplianceFlowTests
         var issuer = new Issuer(new DidId("did:tessera:compliance-issuer"), issuerSigner);
         registry.Register(issuer.BuildRegistryRecord(SchemaRegistry.StandardSchemas[0].SchemaUri));
 
-        var (_, holderPub) = Ed25519.GenerateKeypair();
+        var (holderPriv, holderPub) = Ed25519.GenerateKeypair();
         var holder = await Holder.CreateAsync(holderPub, new HolderOptions
         {
             Store = new InMemoryDidStore(), SignatureVerifier = sigVerifier, ChainAnchor = chain,
@@ -199,10 +209,10 @@ public class ComplianceFlowTests
         await holder.AnchorRootAsync();
 
         var nonce = Rand(16);
-        var presentation = holder.BuildPresentation(
+        var presentation = holder.BuildSignedPresentation(
             VerifierDid,
             new[] { AttestationTypes.KycVerified, AttestationTypes.Jurisdiction },
-            nonce, asOfRevocationEpoch: 0, chain: chain.ChainId, holderSignature: Rand(64));
+            nonce, asOfRevocationEpoch: 0, chain: chain.ChainId, signChallenge: ch => Ed25519.Sign(holderPriv, ch.Span));
 
         var verifier = new Verifier(new VerifierOptions { IssuerRegistry = registry, SignatureVerifier = sigVerifier, ChainAnchor = chain });
         var result = await verifier.VerifyPresentationAsync(presentation, CompliancePolicies.BaseAdmission(VerifierDid, nonce));
@@ -216,7 +226,7 @@ public class ComplianceFlowTests
     /// proof attached to the accredited disclosure. Mirrors what a wallet would build when a
     /// verifier asks for an accredited-tranche presentation.
     /// </summary>
-    private static Presentation BuildPresentationWithPredicate(Holder holder, CredentialBundle incomeProof, byte[] nonce, string chainId)
+    private static Presentation BuildPresentationWithPredicate(Holder holder, byte[] holderPriv, byte[] holderPub, CredentialBundle incomeProof, byte[] nonce, string chainId)
     {
         var bundle = new AttestationBundle(holder.Attestations);
         var disclosures = new List<AttestationDisclosure>();
@@ -228,7 +238,7 @@ public class ComplianceFlowTests
             disclosures.Add(d);
         }
 
-        return new Presentation
+        var presentation = new Presentation
         {
             Holder = holder.Did,
             Disclosures = disclosures,
@@ -238,8 +248,19 @@ public class ComplianceFlowTests
                 SessionNonce = nonce,
                 AsOfRevocationEpoch = 0,
                 Chain = chainId,
-                HolderSignature = Rand(64),
-                CreatedAt = DateTimeOffset.UnixEpoch,
+                HolderSignature = Array.Empty<byte>(), // placeholder, replaced below
+                HolderPublicKey = holderPub,
+                CreatedAt = DateTimeOffset.UtcNow,
+            },
+        };
+
+        // The predicate proof is not part of the challenge (only leaf hashes are), so signing
+        // after attaching it keeps the holder signature valid.
+        return presentation with
+        {
+            Binding = presentation.Binding with
+            {
+                HolderSignature = Ed25519.Sign(holderPriv, PresentationChallenge.Compute(presentation)),
             },
         };
     }

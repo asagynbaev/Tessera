@@ -119,6 +119,46 @@ public class AccountDecoderTests
         Assert.Throws<ArgumentException>(() => IssuerAccount.Decode(raw));
     }
 
+    [Fact]
+    public void RegistryConfig_DecodesAllFields()
+    {
+        var admin = FilledBytes(60, 32);
+
+        var raw = Concat(
+            IdentityRegistryDiscriminators.RegistryConfigAccount,
+            new AnchorBorshWriter()
+                .WriteU8(1)
+                .WriteFixedBytes(admin, 32)
+                .WriteU8(254) // bump
+                .ToArray());
+
+        var account = RegistryConfigAccount.Decode(raw);
+
+        Assert.Equal((byte)1, account.AccountVersion);
+        Assert.Equal(admin, account.Admin);
+        Assert.Equal((byte)254, account.Bump);
+    }
+
+    [Fact]
+    public void RegistryConfig_WrongDiscriminator_Throws()
+    {
+        var raw = Concat(
+            IdentityRegistryDiscriminators.DidAnchorAccount, // wrong disc on purpose
+            new AnchorBorshWriter()
+                .WriteU8(1)
+                .WriteFixedBytes(FilledBytes(0, 32), 32)
+                .WriteU8(255)
+                .ToArray());
+
+        Assert.Throws<ArgumentException>(() => RegistryConfigAccount.Decode(raw));
+    }
+
+    [Fact]
+    public void RegistryConfig_DataTooShort_Throws()
+    {
+        Assert.Throws<ArgumentException>(() => RegistryConfigAccount.Decode(new byte[8]));
+    }
+
     private static byte[] Concat(byte[] a, byte[] b)
     {
         var c = new byte[a.Length + b.Length];

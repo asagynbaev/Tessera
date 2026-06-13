@@ -27,6 +27,18 @@ public sealed class SumsubHttpClient : ISumsubClient
         _options = options ?? throw new ArgumentNullException(nameof(options));
         ArgumentException.ThrowIfNullOrEmpty(options.AppToken);
         ArgumentException.ThrowIfNullOrEmpty(options.SecretKey);
+        ArgumentException.ThrowIfNullOrEmpty(options.BaseUrl);
+
+        // The X-App-Token is a long-lived credential carried on every request; refuse to ever send
+        // it over a cleartext channel. Require an absolute https URL with a real host.
+        if (!Uri.TryCreate(options.BaseUrl, UriKind.Absolute, out var baseUri))
+            throw new ArgumentException($"BaseUrl must be an absolute URL: '{options.BaseUrl}'.", nameof(options));
+        if (!string.Equals(baseUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException(
+                $"BaseUrl must use https so the X-App-Token is never sent in cleartext: '{options.BaseUrl}'.", nameof(options));
+        if (string.IsNullOrWhiteSpace(baseUri.Host))
+            throw new ArgumentException($"BaseUrl must have a non-empty host: '{options.BaseUrl}'.", nameof(options));
+
         _clock = clock ?? TimeProvider.System;
     }
 
@@ -83,11 +95,17 @@ public sealed class SumsubHttpClient : ISumsubClient
         else if (root.TryGetProperty("fixedInfo", out var fixedInfo) && fixedInfo.TryGetProperty("country", out var fc))
             country = fc.GetString();
 
+        // externalUserId is the integrator-supplied binding between the Sumsub applicant and the
+        // subject (the DID). The attestation source uses it to reject "identity transplants".
+        string? externalUserId =
+            root.TryGetProperty("externalUserId", out var ext) ? ext.GetString() : null;
+
         return new SumsubApplicantReview
         {
             ApplicantId = applicantId,
             Approved = completed && string.Equals(reviewAnswer, "GREEN", StringComparison.OrdinalIgnoreCase),
             ReviewAnswer = reviewAnswer,
+            ExternalUserId = externalUserId,
             LevelName = level,
             Country = country,
         };
@@ -97,6 +115,11 @@ public sealed class SumsubHttpClient : ISumsubClient
 /// <summary>Configuration for <see cref="SumsubHttpClient"/>.</summary>
 public sealed record SumsubHttpClientOptions
 {
+    /// <summary>
+    /// Sumsub API base URL. MUST be an absolute <c>https</c> URL with a non-empty host: the
+    /// constructor rejects anything else so the long-lived <c>X-App-Token</c> is never transmitted
+    /// in cleartext. Defaults to the public Sumsub endpoint.
+    /// </summary>
     public string BaseUrl { get; init; } = "https://api.sumsub.com";
     public required string AppToken { get; init; }
     public required string SecretKey { get; init; }
