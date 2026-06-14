@@ -199,6 +199,54 @@ namespace Tessera.Attestations
             catch { return false; }
         }
 
+        // ── Homomorphic predicate helpers ────────────────────────────────────
+        //
+        // Pedersen commitments are additively homomorphic: C₁ ± C₂ commits to value₁ ± value₂ under
+        // blinding r₁ ± r₂. Because VerifyBound takes the commitment point from the caller, a predicate
+        // over a SUM or DIFFERENCE of commitments (C₁ ± C₂ ± … ≥ threshold) is provable with the
+        // EXISTING range-proof math — these helpers just expose the point/scalar arithmetic so NuGet
+        // consumers can assemble the combined commitment and opening. No proof math changes here.
+
+        /// <summary>
+        /// Homomorphically combine two Pedersen commitments: <c>Decode(a) ± Decode(b)</c>, re-encoded.
+        /// The result commits to the sum (or, when <paramref name="subtract"/> is true, the difference)
+        /// of the two committed values under the sum/difference of their blindings.
+        /// </summary>
+        /// <remarks>
+        /// To prove <c>valueA ± valueB ≥ threshold</c> over committed values without revealing them:
+        /// the prover (who holds both openings) computes the combined value and
+        /// <c>opening = CombineOpenings(openingA, openingB, subtract)</c>, then calls
+        /// <see cref="ProveBoundMinimum(long, long, byte[], string)"/> with the combined value, the
+        /// threshold, that opening, and a label. The verifier computes
+        /// <c>C = CombineCommitments(commitmentA, commitmentB, subtract)</c> and calls
+        /// <see cref="VerifyBound(byte[], CredentialBundle)"/> with <c>C</c> and the bundle.
+        /// </remarks>
+        public static byte[] CombineCommitments(byte[] a, byte[] b, bool subtract = false)
+        {
+            ArgumentNullException.ThrowIfNull(a);
+            ArgumentNullException.ThrowIfNull(b);
+            var pa = Point.Decode(a);
+            var pb = Point.Decode(b);
+            var combined = subtract ? pa - pb : pa + pb;
+            return combined.Encode();
+        }
+
+        /// <summary>
+        /// Combine two Pedersen openings (blindings): <c>Scalar(a) ± Scalar(b)</c>, re-encoded. Pair with
+        /// <see cref="CombineCommitments"/> using the same <paramref name="subtract"/> flag so the
+        /// combined opening matches the combined commitment. See <see cref="CombineCommitments"/> for the
+        /// full prover/verifier flow.
+        /// </summary>
+        public static byte[] CombineOpenings(byte[] a, byte[] b, bool subtract = false)
+        {
+            ArgumentNullException.ThrowIfNull(a);
+            ArgumentNullException.ThrowIfNull(b);
+            var sa = Scalar.FromBytes(a);
+            var sb = Scalar.FromBytes(b);
+            var combined = subtract ? sa - sb : sa + sb;
+            return combined.ToBytes();
+        }
+
         public string Serialize(CredentialBundle bundle)
         {
             using var ms = new MemoryStream();
