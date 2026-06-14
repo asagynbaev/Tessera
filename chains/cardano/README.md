@@ -12,7 +12,7 @@ path: `register_did`, `update_root`, `bump_revocation`, `register_issuer`.
 
 | Piece | Path | Status |
 |---|---|---|
-| Aiken validators (Plutus V3) | [`contracts/identity-registry/`](contracts/identity-registry/) | Complete — `aiken check` green (18 tests), blueprint checked in |
+| Aiken validators (Plutus V3) | [`contracts/identity-registry/`](contracts/identity-registry/) | Complete — `aiken check` green (20 tests), blueprint checked in |
 | C# adapter | [`src/Tessera.Chains.Cardano/`](../../src/Tessera.Chains.Cardano/) | `CardanoChainAnchor : IChainAnchor`, CardanoSharp + Blockfrost |
 | Deploy guide | [`DEPLOYMENT.md`](DEPLOYMENT.md) | preprod end-to-end |
 
@@ -89,7 +89,7 @@ then route register-vs-update. See the contract README for detail.
 
 ```sh
 cd contracts/identity-registry
-aiken check     # 18 on-chain unit tests
+aiken check     # 20 on-chain unit tests
 aiken build     # emit plutus.json
 ```
 

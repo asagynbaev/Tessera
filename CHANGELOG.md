@@ -79,7 +79,7 @@ inward. No vendor, network, token, or business-schema names in the core.
   validator (minting policy + spending validator sharing one script hash) using the state-thread
   token pattern, plus a register-only `issuer_registry`. Parity with the Solana program
   (`register_did` / `update_root` / `bump_revocation` / `register_issuer`); `aiken check` green
-  (18 on-chain tests), `plutus.json` blueprint checked in. A `cardano-contract` CI job runs
+  (20 on-chain tests), `plutus.json` blueprint checked in. A `cardano-contract` CI job runs
   `aiken check` + `aiken build` + a blueprint-up-to-date diff.
 - **CardanoCreditLine example** (`examples/CardanoCreditLine`): income attestation carrying a Pedersen
   commitment → anchor the Merkle root on Cardano preprod (Validator mode) → Bulletproof predicate

@@ -27,7 +27,7 @@ adapters are also complete.
 
 ```sh
 cd chains/cardano/contracts/identity-registry
-aiken check     # 18 on-chain unit tests must pass
+aiken check     # 20 on-chain unit tests must pass
 aiken build     # writes plutus.json (checked into the repo)
 ```
 
@@ -42,8 +42,8 @@ For the validators as committed:
 
 | Validator | Policy id | Preprod address |
 |---|---|---|
-| `identity_anchor` | `73f81b6b4d9a0f348391acc37f7122cdca4dcc34a219c5ae111fdd60` | `addr_test1wpelsxmtfkdq7dyrjxkvxlm3ytxu5nwvxj3pn3dwzy0a6cqcu2k9g` |
-| `issuer_registry` (pre-parameter) | `3f94e0bc7163fef7ee132215bd94eee699b3a41fa5e049d4aca884e4` | `addr_test1wqlefc9uw93laalwzv3pt0v5amnfnvayr7j7qjw54j5gfeqt2sa63` |
+| `identity_anchor` | `6d6f737ce5acbc23a4bb0daf5391a6b2bfb2f22adde5671d7bbb58d3` | `addr_test1wpkk7umuukktcgayhvx675u356etlvhj9tw72eca0wa435cx7hx7c` |
+| `issuer_registry` (pre-parameter) | `5fa90b33d76bde659c294dff557eae6df6c4157bba6048aa2ff8f477` | `addr_test1wp06jzen6a4auevu99xl74t74ekld3q40waxqj929lu0gacxv898p` |
 
 The C# adapter derives the `identity_anchor` values from `plutus.json` at runtime,
 so you do not need to copy them into config. **`issuer_registry` is now

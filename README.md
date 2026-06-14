@@ -265,8 +265,9 @@ DID documents, attestations, and proofs are never written on-chain.
 | **Stellar** | Adapter scaffold; anchor contract pending | [`chains/stellar/contracts/attestation-verifier/`](chains/stellar/contracts/attestation-verifier/) |
 | **Midnight** | Adapter scaffold; Compact contract + tx layer pending (mainnet is live) | [`src/Tessera.Chains.Midnight/`](src/Tessera.Chains.Midnight/) |
 
-The Solana adapter speaks to a minimal Anchor program with four instructions:
-`register_did`, `update_root`, `bump_revocation`, `register_issuer`. The EVM adapter
+The Solana adapter speaks to a minimal Anchor program whose four core anchoring instructions are
+`register_did`, `update_root`, `bump_revocation`, `register_issuer` (plus admin-gated
+`initialize` / `deactivate_issuer`). The EVM adapter
 (`Tessera.Chains.Evm`) drives the equivalent [`IdentityRegistry.sol`](chains/evm/contracts/IdentityRegistry.sol)
 on any EVM network — chainId/RPC/contract are pure configuration. The Cardano adapter
 (`Tessera.Chains.Cardano`) drives the same four operations under eUTXO via the Aiken

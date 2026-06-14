@@ -36,7 +36,7 @@ to it once written.
 
 ```bash
 cargo build --target wasm32v1-none --release
-soroban contract deploy \
+stellar contract deploy \
     --wasm target/wasm32v1-none/release/attestation_verifier.wasm \
     --source alice \
     --network testnet

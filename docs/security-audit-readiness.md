@@ -161,7 +161,7 @@ Auditors can reproduce these:
   blueprint (`aiken blueprint policy/address`); datum/redeemer + Conway/V3 CBOR (language views,
   map-form redeemers, script-data hash) golden vectors and round-trips; retry classification.
 - `chains/evm` Hardhat suite + `chains/solana` Anchor tests + `chains/cardano` `aiken check`
-  (18 on-chain tests) — on-chain behavior.
+  (20 on-chain tests) — on-chain behavior.
 - End-to-end: `Tessera.Sdk.Tests/EndToEndFlowTests` and the Layer-3
   `ComplianceFlowTests` (onboard → policy → allowlist → revocation blocks transfers).
 

@@ -8,8 +8,8 @@ Privacy-preserving identity and reputation infrastructure for our own product. C
 - Generic attestation envelopes (issuer-signed, type-tagged, expiring).
 - Selective-disclosure presentations with Merkle inclusion proofs.
 - A minimal on-chain anchor — Merkle root + revocation epoch — chain-agnostic via `IChainAnchor`.
-  Solana, generic-EVM, and Cardano (Aiken / Plutus V3, preprod) adapters complete; Stellar adapter
-  in progress.
+  Solana, generic-EVM, and Cardano (Aiken / Plutus V3, preprod) adapters complete; Stellar and
+  Midnight adapters are scaffolds.
 - A from-scratch Bulletproofs-on-secp256k1 library, used for selective disclosure
   over committed values.
 
@@ -75,7 +75,9 @@ double-satisfaction guard), and token conservation.
 The C# adapter (`Tessera.Chains.Cardano`) drives this via CardanoSharp + Blockfrost, with a
 metadata-mode fallback (root/epoch written as tx metadata) for demos where the validator flow is
 not needed. `didHash = SHA-256(utf8(did))` is identical across every backend. Native **Midnight**
-integration (zkSNARK stack, selective disclosure on Midnight) is **planned**, not yet present.
+integration (zkSNARK stack, selective disclosure on Midnight) is **a scaffold** (`Tessera.Chains.Midnight`
+implements `IChainAnchor`; reads report no anchor, writes throw `NotSupported`) — the Compact anchor
+contract and the Midnight transaction layer are pending.
 
 ## Repository layout
 
@@ -88,6 +90,9 @@ Tessera/
 │   ├── Tessera.Attestations/               Attestations + Merkle + PresentationVerifier + CredentialProof
 │   ├── Tessera.Attestations.Tests/
 │   ├── Tessera.Cryptography/               secp256k1, Pedersen, Bulletproofs (pure C#)
+│   ├── Tessera.Cryptography.Tests/
+│   ├── Tessera.Channels/                   HKDF-SHA256 channel-binding commitments (pepper-salted)
+│   ├── Tessera.Channels.Tests/
 │   ├── Tessera.Signing/                    Ed25519 over NSec (libsodium)
 │   ├── Tessera.Signing.Tests/
 │   ├── Tessera.EntityFrameworkCore/        EF Core IDidStore + IIssuerRegistry (any relational provider)
@@ -100,12 +105,15 @@ Tessera/
 │   ├── Tessera.Chains.Evm/                 Generic EVM adapter (Nethereum) + allowlist gateway
 │   ├── Tessera.Chains.Evm.Tests/
 │   ├── Tessera.Chains.Stellar/             Stellar adapter scaffold (StellarDotnetSdk, Soroban)
+│   ├── Tessera.Chains.Midnight/            Midnight adapter scaffold (Compact + tx layer pending)
 │   ├── Tessera.Sdk/                        Holder, Issuer, Verifier facades + IssuancePipeline
 │   ├── Tessera.Sdk.Tests/
 │   ├── Tessera.Sources.Sumsub/             Layer-2 plugin: Sumsub KYC → AttestationDrafts
 │   ├── Tessera.Sources.Sumsub.Tests/
 │   ├── Tessera.Sources.XRoad/              Layer-2 plugin: X-Road government registry → drafts
-│   └── Tessera.Sources.XRoad.Tests/
+│   ├── Tessera.Sources.XRoad.Tests/
+│   ├── Tessera.Sources.Bitcoin/            Layer-2 plugin: proven Bitcoin control + balance/hodl-age (NBitcoin)
+│   └── Tessera.Sources.Bitcoin.Tests/
 │
 ├── chains/
 │   ├── solana/                              Anchor IdentityRegistry program (adapter: complete)
@@ -131,24 +139,26 @@ Tessera/
 │   ├── PrivacyApps.Tests/
 │   ├── PermissionedToken/                   Layer-3 reference: permissioned BEP-20 compliance flow
 │   ├── PermissionedToken.Tests/             end-to-end: onboard → policy → allowlist → revocation
-│   └── CardanoCreditLine/                   income attestation → anchor on Cardano preprod → verify
+│   ├── CardanoCreditLine/                   income attestation → anchor on Cardano preprod → verify
+│   └── BitcoinCreditLine/                   proof of Bitcoin balance → anchor → verify
 │
 └── docs/
     ├── architecture.md                      ← this file
-    └── security-audit-readiness.md          A6 audit dossier + known limitations + test vectors
+    ├── security-audit-readiness.md          A6 audit dossier + known limitations + test vectors
+    └── deploying-solana.md                  Solana program deployment guide
 ```
 
 ## Packages and dependencies
 
 ```
                             ┌───────────────────────┐
-                            │   Tessera.Core       │
+                            │   Tessera.Core        │
                             └────────┬──────────────┘
                                      │
                 ┌────────────────────┼────────────────────────┐
                 │                    │                        │
         ┌───────▼─────────┐  ┌───────▼────────────┐  ┌────────▼──────────────┐
-        │  Tessera.Did   │  │ Tessera.          │  │ Tessera.             │
+        │  Tessera.Did    │  │ Tessera.           │  │ Tessera.              │
         │                 │  │ Attestations       │  │ Cryptography          │
         └────────┬────────┘  └─────────┬──────────┘  └───────────────────────┘
                  │                     │                       ▲
@@ -158,18 +168,18 @@ Tessera/
                  │             │   used by Tessera.Attestations.CredentialProof
                  │             │
                  │      ┌──────▼─────────────────┐
-                 └──────► Tessera.Signing       │  (Ed25519, NSec)
+                 └──────► Tessera.Signing        │  (Ed25519, NSec)
                         └────────────────────────┘
                                                   
         ┌───────────────────────────┐
-        │ Tessera.                 │
+        │ Tessera.                  │
         │ Chains.Abstractions       │  (IChainAnchor, IAllowlistGateway, DidHash)
         └─────────────┬─────────────┘
                       │
         ┌─────────────┼─────────────────┐
         │             │                 │
  ┌──────▼───────┐ ┌───▼──────────┐ ┌────▼──────────┐ ┌────▼─────────┐
- │ Tessera.    │ │ Tessera.    │ │ Tessera.     │ │ Tessera.    │
+ │ Tessera.     │ │ Tessera.     │ │ Tessera.      │ │ Tessera.      │
  │ Chains.Solana│ │ Chains.Evm   │ │ Chains.Cardano│ │ Chains.Stellar│
  └──────────────┘ └──────────────┘ └───────────────┘ └──────────────┘
                   (Cardano: CardanoSharp + Blockfrost, Aiken Plutus V3)
@@ -179,11 +189,11 @@ Tessera/
         └────────────────────────────────────┘
 
         ┌────────────────────────────────────┐
-        │ Tessera.EntityFrameworkCore       │  (EF Core stores; depends on Did + Attestations)
+        │ Tessera.EntityFrameworkCore        │  (EF Core stores; depends on Did + Attestations)
         └────────────────────────────────────┘
 
         ┌────────────────────────────────────┐
-        │ Tessera.Sdk                       │  (Holder/Issuer/Verifier facades; depends on
+        │ Tessera.Sdk                        │  (Holder/Issuer/Verifier facades; depends on
         └────────────────────────────────────┘   Did, Attestations, Chains.Abstractions)
 ```
 
@@ -275,8 +285,8 @@ A DID document carries:
   fields, and separately proves the bound address is controlled by that wallet key via
   `IWalletControlVerifier` (the default covers Solana `base58(pubkey)` and fails closed on chains it
   does not understand). The `nonce` is single-use, tracked through an `INonceStore` to block replay.
-- A list of bound off-chain channels (Telegram, phone, email) as `blake3(handle || salt)`
-  commitments — never plaintext, never salt-only.
+- A list of bound off-chain channels (Telegram, phone, email) as HKDF-SHA256 commitments
+  over `channel_type || handle` salted with a KMS-held pepper — never plaintext, never salt-only.
 - The current Merkle attestation root.
 
 ## Attestation flow
