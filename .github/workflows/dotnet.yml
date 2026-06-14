@@ -116,30 +116,32 @@ jobs:
         working-directory: chains/evm
         run: npx hardhat compile
 
-      - name: Start local Hardhat node
+      # Node start + deploy + test live in ONE step: a process backgrounded in an earlier step
+      # is not guaranteed to survive into later steps (the runner tears down a step's process
+      # tree at step end), which kills the local node before the tests can reach it.
+      - name: Run EVM smoke tests (live against local node)
         working-directory: chains/evm
         run: |
           npx hardhat node > hardhat-node.log 2>&1 &
+          NODE_PID=$!
+          trap "kill $NODE_PID 2>/dev/null || true" EXIT
+
+          up=
           for i in $(seq 1 30); do
             if curl -s -X POST http://127.0.0.1:8545 -H 'Content-Type: application/json' \
                  --data '{"jsonrpc":"2.0","method":"eth_chainId","params":[],"id":1}' | grep -q result; then
-              echo "node up"; exit 0
+              up=1; echo "node up after ${i}s"; break
             fi
             sleep 1
           done
-          echo "Hardhat node failed to start:"; cat hardhat-node.log; exit 1
+          if [ -z "$up" ]; then echo "Hardhat node failed to start:"; cat hardhat-node.log; exit 1; fi
 
-      - name: Deploy IdentityRegistry + Allowlist
-        working-directory: chains/evm
-        run: npx hardhat run scripts/deploy-local.js --network localhost
+          npx hardhat run scripts/deploy-local.js --network localhost
+          export TESSERA_EVM_REGISTRY=$(node -e "process.stdout.write(require('./deployed.local.json').registry)")
+          export TESSERA_EVM_ALLOWLIST=$(node -e "process.stdout.write(require('./deployed.local.json').allowlist)")
+          echo "registry=$TESSERA_EVM_REGISTRY allowlist=$TESSERA_EVM_ALLOWLIST"
 
-      - name: Export deployed addresses
-        working-directory: chains/evm
-        run: |
-          node -e "const d=require('./deployed.local.json');const fs=require('fs');fs.appendFileSync(process.env.GITHUB_ENV,'TESSERA_EVM_REGISTRY='+d.registry+'\n'+'TESSERA_EVM_ALLOWLIST='+d.allowlist+'\n')"
-
-      - name: Run EVM smoke tests (live against local node)
-        run: dotnet test src/Tessera.Chains.Evm.Tests --configuration Release --verbosity normal
+          dotnet test ../../src/Tessera.Chains.Evm.Tests --configuration Release --verbosity normal
 
   cardano-contract:
     runs-on: ubuntu-latest
