@@ -2,11 +2,12 @@
 
 ## [Unreleased]
 
-## [3.3.0-preview.2] - 2026-06-14
+## [3.3.0] - 2026-06-14
 
-Fixes found while exercising v3.3.0-preview.1 live (Cardano preprod with real submits; a local EVM
-node): both the Cardano anchor flow (Metadata + Validator modes) and the EVM `registerDid` path were
-broken in preview.1 and now work end-to-end.
+Stable cut of the v3.3 line (previews `3.3.0-preview.1` / `.2`): point-in-time snapshot binding and
+homomorphic predicate helpers, plus the Cardano (Metadata + Validator) and EVM `registerDid`
+anchor-flow fixes the previews surfaced — all verified end-to-end (Cardano preprod with real submits;
+a local EVM node).
 
 ### Fixed
 
@@ -51,14 +52,6 @@ broken in preview.1 and now work end-to-end.
   smoke tests against it — so the on-chain anchor path is exercised on every push/PR instead of
   silently skipping. `chains/evm/scripts/deploy-local.js` + `chains/evm/.env.local.example` make the
   same run reproducible locally (it caught the `registerDid` regression above).
-
-## [3.3.0-preview.1] - 2026-06-14
-
-First preview of the v3.3 primitives (tag `v3.3.0-preview.1`): point-in-time snapshot binding and
-homomorphic predicate helpers — additive and backward-compatible on top of 3.2.0.
-
-### Added
-
 - **Point-in-time snapshot binding** (`Tessera.Sources.Bitcoin` + `Tessera.Attestations`): every
   Bitcoin attestation now binds a chain snapshot — best-block height, hash, and time — captured once
   per fact computation via the new `IBitcoinProvider.GetChainTipAsync` (`EsploraBitcoinProvider` reads

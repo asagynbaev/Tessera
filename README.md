@@ -56,7 +56,7 @@ the `Sagynbaev.Tessera.Sdk` package); namespaces remain `Tessera.*`.
 | `Tessera.Sources.XRoad` | Layer-2 plugin: X-Road government registry → residency / property / encumbrance. |
 | `Tessera.Sources.Bitcoin` | Layer-2 plugin: proven control of Bitcoin addresses (BIP-137 signed challenge) → `btc_control` (address count only) + Pedersen-committed `btc_balance` / `btc_hodl_age`, each bound to a point-in-time chain snapshot (height/hash/time). Esplora (mempool.space / blockstream.info) provider. |
 
-> **Audit status:** the current release is **3.3.0-preview.2**, built on the v3.2.0
+> **Audit status:** the current release is **3.3.0**, built on the v3.2.0
 > security-hardening baseline (authenticated holder presentations, fail-closed revocation,
 > address-bound wallet binding, authenticated on-chain anchors — see [Security](#security)). `Tessera.Cryptography` remains a
 > from-scratch, **not constant-time** implementation pending external review; constant-time
@@ -308,7 +308,7 @@ they upgrade.
 
 ## Security
 
-The current release (**3.3.0-preview.2**) builds on the v3.2.0 security-hardening baseline. The
+The current release (**3.3.0**) builds on the v3.2.0 security-hardening baseline. The
 guarantees that matter at the trust boundary:
 
 - **Authenticated holder presentations.** A presentation carries the holder's controller
