@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **EVM `registerDid` controller signature was always rejected** (`Tessera.Chains.Evm`): the
+  registration signer built its EIP-191 prefix from the literal `"\x19Ethereum…"`, but C#'s `\x`
+  escape is variable-length — `\x19E` parses as the single char `U+019E` (E is a hex digit) and
+  corrupts the prefix. The signature was made over the wrong digest; Nethereum recovered it
+  self-consistently (so the signer unit test passed) while the contract's `ecrecover` used the correct
+  prefix and recovered a different signer, reverting `InvalidSignature` on every live `registerDid`.
+  Net effect: live EVM DID registration (anchoring a not-yet-registered DID) was broken in 3.2.0,
+  masked because the smoke tests are env-gated and skipped. Fixed by building the prefix as explicit
+  bytes (`0x19 ++ "Ethereum Signed Message:\n32"`); added regression tests asserting the struct hash
+  matches Solidity `abi.encode` and the signature is low-S per EIP-2.
+
+### Added
+
+- **Live EVM smoke tests in CI**: a new `evm-smoke` GitHub Actions job spins up a local Hardhat node,
+  deploys `IdentityRegistry` + `Allowlist`, and runs the `EvmChainAnchor` / `EvmAllowlistGateway`
+  smoke tests against it — so the on-chain anchor path is exercised on every push/PR instead of
+  silently skipping. `chains/evm/scripts/deploy-local.js` + `chains/evm/.env.local.example` make the
+  same run reproducible locally (it caught the `registerDid` regression above).
+
 ## [3.2.0] - 2026-06-13
 
 Chain-agnostic core extended for permissioned-token / compliance use cases, organized as three
