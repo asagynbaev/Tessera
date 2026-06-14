@@ -84,6 +84,28 @@ npm run deploy:bnbtestnet
 The deployer becomes the initial issuer-registry authority unless
 `TESSERA_EVM_AUTHORITY` overrides it.
 
+## Local smoke tests (C# adapter ↔ a real chain)
+
+The `EvmChainAnchor` / `EvmAllowlistGateway` smoke tests in `src/Tessera.Chains.Evm.Tests`
+are `[SkippableFact]`-gated on the `TESSERA_EVM_*` env vars, so they skip unless pointed at a
+live chain. Run them against a throwaway local Hardhat node — no funds, no faucet:
+
+```bash
+cd chains/evm
+npm ci && npx hardhat compile
+npx hardhat node &                                            # local chain on :8545
+npx hardhat run scripts/deploy-local.js --network localhost   # deploys both, writes deployed.local.json
+cp .env.local.example .env.local && set -a && . ./.env.local && set +a
+dotnet test ../../src/Tessera.Chains.Evm.Tests -c Release     # smoke tests now run live
+```
+
+`deploy-local.js` deploys `IdentityRegistry` + `Allowlist` and records their addresses in
+`deployed.local.json` (gitignored). `.env.local.example` uses the stock, publicly-known Hardhat
+account #0 — a throwaway key valid only on a local node; never put a real key there.
+
+CI runs exactly this in the **`evm-smoke`** GitHub Actions job, so the on-chain anchor path is
+exercised on every push/PR rather than silently skipping.
+
 ## C# client
 
 `src/Tessera.Chains.Evm/EvmChainAnchor` implements `IChainAnchor` against this
