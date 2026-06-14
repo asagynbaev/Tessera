@@ -10,9 +10,12 @@ namespace Tessera.Chains.Cardano.Tests;
 /// </summary>
 public class ScriptAddressTests
 {
-    private const string IdentityAnchorPolicyId = "73f81b6b4d9a0f348391acc37f7122cdca4dcc34a219c5ae111fdd60";
-    private const string IdentityAnchorPreprodAddress = "addr_test1wpelsxmtfkdq7dyrjxkvxlm3ytxu5nwvxj3pn3dwzy0a6cqcu2k9g";
-    private const string IssuerRegistryPolicyId = "3f94e0bc7163fef7ee132215bd94eee699b3a41fa5e049d4aca884e4";
+    // These pin the script hashes / address the adapter derives from the embedded blueprint to what
+    // `aiken build` (v1.1.21 / stdlib v3.1.0) produces. Updated for the v3.2.0 governance-gated
+    // issuer_registry (admin-parameterized) — see chains/cardano .../plutus.json.
+    private const string IdentityAnchorPolicyId = "6d6f737ce5acbc23a4bb0daf5391a6b2bfb2f22adde5671d7bbb58d3";
+    private const string IdentityAnchorPreprodAddress = "addr_test1wpkk7umuukktcgayhvx675u356etlvhj9tw72eca0wa435cx7hx7c";
+    private const string IssuerRegistryPolicyId = "5fa90b33d76bde659c294dff557eae6df6c4157bba6048aa2ff8f477";
 
     [Fact]
     public void IdentityAnchor_PolicyId_MatchesAikenBlueprint()
