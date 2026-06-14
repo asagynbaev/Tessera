@@ -42,7 +42,7 @@ the `Sagynbaev.Tessera.Sdk` package); namespaces remain `Tessera.*`.
 | `Tessera.Sdk` | **Entry point for most consumers.** High-level `Holder`, `Issuer`, `Verifier` facades. |
 | `Tessera.Core` | `DidId`, `Base58`. Zero external dependencies. |
 | `Tessera.Did` | `DidDocument`, `DidService`, `IDidStore`, wallet/channel binding, revocation. |
-| `Tessera.Attestations` | `Attestation`, `AttestationIssuer`, `MerkleTree`, `AttestationVerifier`, `PresentationVerifier`, `IIssuerRegistry`, `CredentialProof`. |
+| `Tessera.Attestations` | `Attestation`, `AttestationIssuer`, `MerkleTree`, `AttestationVerifier`, `PresentationVerifier`, `IIssuerRegistry`, `CredentialProof` (incl. `CombineCommitments`/`CombineOpenings` for predicates over a sum/difference of commitments), `ChainSnapshot`. |
 | `Tessera.Cryptography` | Pure-C# secp256k1, Pedersen commitments, Bulletproofs (no external deps). |
 | `Tessera.Signing` | Production Ed25519 (NSec / libsodium). Drop-in `Ed25519Verifier` and `Ed25519IssuerSigner`. |
 | `Tessera.EntityFrameworkCore` | EF Core `IDidStore` and `IIssuerRegistry` over any relational provider (Postgres, SQL Server, SQLite). |
@@ -54,7 +54,7 @@ the `Sagynbaev.Tessera.Sdk` package); namespaces remain `Tessera.*`.
 | `Tessera.Chains.Evm` | Generic EVM adapter (Nethereum): `EvmChainAnchor` + `EvmAllowlistGateway`, any chainId/RPC. |
 | `Tessera.Sources.Sumsub` | Layer-2 plugin: Sumsub KYC → `kyc_verified` / `jurisdiction` attestations. |
 | `Tessera.Sources.XRoad` | Layer-2 plugin: X-Road government registry → residency / property / encumbrance. |
-| `Tessera.Sources.Bitcoin` | Layer-2 plugin: proven control of Bitcoin addresses (BIP-137 signed challenge) → `btc_control` (address count only) + Pedersen-committed `btc_balance` / `btc_hodl_age`. Esplora (mempool.space / blockstream.info) provider. |
+| `Tessera.Sources.Bitcoin` | Layer-2 plugin: proven control of Bitcoin addresses (BIP-137 signed challenge) → `btc_control` (address count only) + Pedersen-committed `btc_balance` / `btc_hodl_age`, each bound to a point-in-time chain snapshot (height/hash/time). Esplora (mempool.space / blockstream.info) provider. |
 
 > **Audit status:** v3.2.0 is a security-hardening release (authenticated holder
 > presentations, fail-closed revocation, address-bound wallet binding, authenticated

@@ -10,6 +10,24 @@ inward. No vendor, network, token, or business-schema names in the core.
 
 ### Added
 
+- **Point-in-time snapshot binding** (`Tessera.Sources.Bitcoin` + `Tessera.Attestations`): every
+  Bitcoin attestation now binds a chain snapshot — best-block height, hash, and time — captured once
+  per fact computation via the new `IBitcoinProvider.GetChainTipAsync` (`EsploraBitcoinProvider` reads
+  `/blocks/tip/height` + `/blocks/tip/hash` and the tip block's time). The snapshot rides in each
+  payload's claims via the generic `Tessera.Attestations.ChainSnapshot` (public chain data — no
+  address/txid/amount, so the privacy invariant holds; the leak test now asserts the snapshot is
+  present while secrets stay absent). Honest scope: it records the tip at issuance time, not historical
+  verification at a past height (that needs an indexer).
+- **`SnapshotFreshness` verification rule** (`Tessera.Sdk`): opt-in (default off)
+  `SnapshotFreshnessRequirement` on `VerificationPolicy` fails a presentation whose snapshot is older
+  than a max age in time (`MaxAge`) and/or in blocks (`MaxAgeBlocks` + the verifier's
+  `CurrentBlockHeight`), with reason `snapshot_stale:{type}`. `VerifierOptions.Clock` (a `TimeProvider`)
+  drives the time check; read a snapshot off any disclosure with `ChainSnapshot.TryFrom(payload)`.
+- **Homomorphic predicate helpers** (`Tessera.Attestations.CredentialProof`): `CombineCommitments` and
+  `CombineOpenings` expose the additive homomorphism of Pedersen commitments, so a bound predicate over
+  a sum or difference of commitments (`C₁ ± C₂ ± … ≥ threshold`) is provable with the existing
+  range-proof math — no proof-math change. The prover combines openings + value and calls
+  `ProveBoundMinimum`; the verifier combines commitments and calls `VerifyBound`.
 - **Bitcoin attestation source** (`Tessera.Sources.Bitcoin`): turns proven control of Bitcoin
   addresses into attestations — the basis for "private proof-of-Bitcoin". A holder proves control by
   signing a domain-separated, anti-replay challenge (`BitcoinChallenge` + `INonceStore`); BIP-137
