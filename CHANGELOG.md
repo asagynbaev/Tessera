@@ -19,6 +19,14 @@
 - **Cardano submit errors were truncated, hiding the real ledger failure** (`BlockfrostCardanoProvider`):
   a ledger error longer than 300 chars (the real Conway error trails a legacy-decoder preamble) was cut
   off, surfacing only the misleading preamble. Submit (`tx/submit`) errors are no longer truncated.
+- **Cardano Metadata-mode transactions were rejected (`InvalidMetadata`)** (`Tessera.Chains.Cardano`):
+  the 64-byte Ed25519 signature was written into the metadata as a single 128-char hex string, but
+  Cardano transaction metadata caps every string at 64 bytes, so the node rejected the tx with
+  `ConwayUtxowFailure InvalidMetadata`. The signature hex is now split into a list of ≤64-char chunks
+  (rejoined on read); a regression test asserts every metadata string is within the cap.
+- All four Cardano fixes above were verified **end-to-end on preprod with real submits**: a
+  Validator-mode `register` (Plutus V3 mint) and a Metadata-mode `register` + read-back both confirm
+  on-chain.
 - **EVM `registerDid` controller signature was always rejected** (`Tessera.Chains.Evm`): the
   registration signer built its EIP-191 prefix from the literal `"\x19Ethereum…"`, but C#'s `\x`
   escape is variable-length — `\x19E` parses as the single char `U+019E` (E is a hex digit) and

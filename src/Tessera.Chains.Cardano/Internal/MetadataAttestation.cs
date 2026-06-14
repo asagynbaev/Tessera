@@ -1,4 +1,6 @@
 using System.Buffers.Binary;
+using System.Text;
+using System.Text.Json;
 using CardanoSharp.Wallet.Extensions.Models;
 using CardanoSharp.Wallet.Models.Keys;
 
@@ -21,6 +23,32 @@ internal static class MetadataAttestation
     /// <summary>JSON keys for the embedded controller public key and signature (hex, lower-case).</summary>
     public const string PubKeyField = "pk";
     public const string SignatureField = "sig";
+
+    /// <summary>
+    /// Cardano transaction metadata caps every text string at 64 bytes; a longer value (the 128-char
+    /// signature hex) must be split into a list of ≤64-char chunks, or the node rejects the tx with
+    /// <c>InvalidMetadata</c>. Writers use this to chunk; <see cref="ReadChunkedString"/> rejoins.
+    /// </summary>
+    public const int MaxMetadataStringChars = 64;
+
+    /// <summary>
+    /// Read a metadata field that is either a single string or a list of ≤64-char chunks (joined in
+    /// order). Returns null if absent or any element is not a string — never throws.
+    /// </summary>
+    public static string? ReadChunkedString(JsonElement json, string field)
+    {
+        if (!json.TryGetProperty(field, out var v)) return null;
+        if (v.ValueKind == JsonValueKind.String) return v.GetString();
+        if (v.ValueKind != JsonValueKind.Array) return null;
+
+        var sb = new StringBuilder();
+        foreach (var item in v.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.String) return null;
+            sb.Append(item.GetString());
+        }
+        return sb.ToString();
+    }
 
     /// <summary>
     /// Canonical signed message: <c>did_hash (32) ‖ attestation_root (32) ‖ epoch (8, big-endian)</c>.

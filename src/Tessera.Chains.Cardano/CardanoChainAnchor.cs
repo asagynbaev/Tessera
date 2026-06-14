@@ -234,8 +234,9 @@ public sealed class CardanoChainAnchor : IChainAnchor, IDisposable
 
         var pkHex = json.TryGetProperty(MetadataAttestation.PubKeyField, out var pk) && pk.ValueKind == JsonValueKind.String
             ? pk.GetString() : null;
-        var sigHex = json.TryGetProperty(MetadataAttestation.SignatureField, out var sig) && sig.ValueKind == JsonValueKind.String
-            ? sig.GetString() : null;
+        // The signature hex (128 chars) is stored as a list of ≤64-char chunks to satisfy the metadata
+        // string cap; rejoin it (also accepts a single string for forward/backward tolerance).
+        var sigHex = MetadataAttestation.ReadChunkedString(json, MetadataAttestation.SignatureField);
 
         // The embedded public key must be the controller's, and the signature must bind the payload.
         var pkHash = MetadataAttestation.KeyHash(pkHex);

@@ -236,12 +236,33 @@ internal static class CborTx
         w.WriteTextString("root");
         w.WriteTextString(rootHex);
         w.WriteTextString(MetadataAttestation.SignatureField);
-        w.WriteTextString(signatureHex);
+        WriteMetadataText(w, signatureHex); // 128-char sig hex exceeds the 64-byte cap → write as chunks
         w.WriteEndMap();
         w.WriteEndMap();
         w.WriteEndMap();
         var aux = w.Encode();
         return (aux, HashUtility.Blake2b256(aux));
+    }
+
+    /// <summary>
+    /// Write a metadata text value, splitting it into a list of ≤64-char chunks when it exceeds the
+    /// Cardano metadata string cap (a single string otherwise). Pairs with
+    /// <see cref="MetadataAttestation.ReadChunkedString"/>.
+    /// </summary>
+    private static void WriteMetadataText(CborWriter w, string value)
+    {
+        if (value.Length <= MetadataAttestation.MaxMetadataStringChars)
+        {
+            w.WriteTextString(value);
+            return;
+        }
+
+        var chunkSize = MetadataAttestation.MaxMetadataStringChars;
+        var chunkCount = (value.Length + chunkSize - 1) / chunkSize;
+        w.WriteStartArray(chunkCount);
+        for (var i = 0; i < value.Length; i += chunkSize)
+            w.WriteTextString(value.Substring(i, Math.Min(chunkSize, value.Length - i)));
+        w.WriteEndArray();
     }
 }
 
