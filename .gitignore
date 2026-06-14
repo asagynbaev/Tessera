@@ -45,3 +45,6 @@ wwwroot/
 # Local environment files
 .env
 .env.local
+
+# Local EVM deploy artifact (addresses from scripts/deploy-local.js)
+deployed.local.json
