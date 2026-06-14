@@ -34,10 +34,11 @@ public class EndToEndFlowTests
         Assert.False(didDoc.Revoked);
 
         // ── 3. Wallet binding: the wallet signs the canonical challenge
+        //   The Solana address must be provably controlled by the key: address == Base58(pubkey).
         var bindingRequest = new WalletBindingRequest
         {
             Chain = "solana",
-            Address = "ExampleSolanaAddr11111111111111111111111111",
+            Address = Base58.Encode(walletPub),
             WalletPublicKey = walletPub,
             Nonce = RandomBytes(16),
             Expiry = DateTimeOffset.UtcNow.AddMinutes(5),
@@ -81,6 +82,8 @@ public class EndToEndFlowTests
         Assert.True(attResult.Valid, $"attestation verify failed: {attResult.Reason}");
 
         // ── 7. Bundle + presentation
+        //   The presenter authenticates by signing the canonical challenge with the holder
+        //   controller key; HolderPublicKey re-derives to didDoc.Id.
         var bundle = new AttestationBundle(new[] { attestation });
         var presentation = new Presentation
         {
@@ -92,12 +95,20 @@ public class EndToEndFlowTests
                 SessionNonce = RandomBytes(16),
                 AsOfRevocationEpoch = 0,
                 Chain = "solana",
-                HolderSignature = Array.Empty<byte>(), // not enforced by current verifier
+                HolderSignature = Array.Empty<byte>(), // placeholder, replaced below
+                HolderPublicKey = holderPub,
                 CreatedAt = DateTimeOffset.UtcNow,
             },
         };
+        presentation = presentation with
+        {
+            Binding = presentation.Binding with
+            {
+                HolderSignature = Ed25519.Sign(holderPriv, PresentationChallenge.Compute(presentation)),
+            },
+        };
 
-        var presentationVerifier = new PresentationVerifier(attestationVerifier);
+        var presentationVerifier = new PresentationVerifier(attestationVerifier, verifier);
         var result = await presentationVerifier.VerifyAsync(presentation, bundle.Root);
 
         Assert.True(result.Valid, $"presentation verify failed: {result.Reason}");
@@ -159,7 +170,7 @@ public class EndToEndFlowTests
         var bindingRequest = new WalletBindingRequest
         {
             Chain = "solana",
-            Address = "TargetAddr",
+            Address = Base58.Encode(walletPub), // a genuinely-controlled address, so the SIGNATURE is what's rejected
             WalletPublicKey = walletPub,
             Nonce = RandomBytes(16),
             Expiry = DateTimeOffset.UtcNow.AddMinutes(5),

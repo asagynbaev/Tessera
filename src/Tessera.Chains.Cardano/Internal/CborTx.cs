@@ -207,9 +207,14 @@ internal static class CborTx
 
     /// <summary>
     /// Build Conway auxiliary data <c>#6.259({ 0 : metadata })</c> where metadata is
-    /// <c>{ label : { "did": h, "root": h, "epoch": n } }</c>, and return it with its blake2b-256 hash.
+    /// <c>{ label : { "did": h, "epoch": n, "pk": h, "root": h, "sig": h } }</c>, and return it with
+    /// its blake2b-256 hash. The <c>pk</c>/<c>sig</c> fields carry the controller's Ed25519 public key
+    /// and a signature over the canonical <c>(did_hash‖root‖epoch)</c> message so a reader can
+    /// authenticate the payload (the metadata label is a shared, permissionless namespace).
+    /// Map keys are emitted in canonical order automatically by the CBOR writer.
     /// </summary>
-    public static (byte[] AuxData, byte[] Hash) BuildMetadataAuxData(ulong label, string didHashHex, string rootHex, ulong epoch)
+    public static (byte[] AuxData, byte[] Hash) BuildMetadataAuxData(
+        ulong label, string didHashHex, string rootHex, ulong epoch, string controllerPubKeyHex, string signatureHex)
     {
         var w = new CborWriter(CborConformanceMode.Canonical);
         w.WriteTag((CborTag)259); // Conway alonzo-style auxiliary data
@@ -217,13 +222,17 @@ internal static class CborTx
         w.WriteInt32(0); // transaction_metadata
         w.WriteStartMap(1);
         w.WriteUInt64(label);
-        w.WriteStartMap(3);
+        w.WriteStartMap(5);
         w.WriteTextString("did");
         w.WriteTextString(didHashHex);
         w.WriteTextString("epoch");
         w.WriteUInt64(epoch);
+        w.WriteTextString(MetadataAttestation.PubKeyField);
+        w.WriteTextString(controllerPubKeyHex);
         w.WriteTextString("root");
         w.WriteTextString(rootHex);
+        w.WriteTextString(MetadataAttestation.SignatureField);
+        w.WriteTextString(signatureHex);
         w.WriteEndMap();
         w.WriteEndMap();
         w.WriteEndMap();

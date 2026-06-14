@@ -42,11 +42,21 @@ jobs:
 
       - name: Resolve version
         id: ver
+        env:
+          # Pass the attacker-controllable workflow_dispatch input via env, never via
+          # ${{ ... }} interpolation into the script body, to avoid shell injection.
+          VERSION_INPUT: ${{ github.event.inputs.version }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            v="${{ github.event.inputs.version }}"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            v="$VERSION_INPUT"
           else
             v="${GITHUB_REF_NAME#v}"
+          fi
+          # Defense in depth: only accept a semantic version (optionally with a pre-release/build suffix).
+          if ! printf '%s' "$v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$'; then
+            echo "::error::Invalid version '$v' — expected semver like 3.1.0"
+            exit 1
           fi
           echo "value=$v" >> "$GITHUB_OUTPUT"
           echo "Publishing version $v"
@@ -71,7 +81,7 @@ jobs:
       # Trusted Publishing: exchange the OIDC token for a short-lived nuget.org API key.
       # Request it right before pushing — the key is only valid for 1 hour.
       - name: NuGet login (OIDC → short-lived API key)
-        uses: NuGet/login@v1
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1
         id: login
         with:
           user: ${{ secrets.NUGET_USER }}

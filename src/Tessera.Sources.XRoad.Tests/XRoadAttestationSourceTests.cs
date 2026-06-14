@@ -32,6 +32,7 @@ public class XRoadAttestationSourceTests
         var client = new FakeClient(new XRoadRegistryRecord
         {
             PersonFound = true,
+            AssertedNationalId = "123456",
             ResidencyCountry = "KZ",
             PropertyOwnershipConfirmed = true,
             ParcelId = "09-123-456",
@@ -51,6 +52,35 @@ public class XRoadAttestationSourceTests
         // The query forwarded the national id + parcel id.
         Assert.Equal("123456", client.LastQuery!.NationalId);
         Assert.Equal("09-123-456", client.LastQuery!.ParcelId);
+    }
+
+    [Fact]
+    public async Task AssertedNationalIdMismatch_EmitsNothing()
+    {
+        // The registry response is about a DIFFERENT person than was requested: refuse.
+        var source = new XRoadAttestationSource(new FakeClient(new XRoadRegistryRecord
+        {
+            PersonFound = true,
+            AssertedNationalId = "999999",
+            ResidencyCountry = "KZ",
+        }));
+        Assert.Empty(await source.ResolveAsync(Subject("123456")));
+    }
+
+    [Fact]
+    public async Task NoAssertedNationalId_StillEmits_UnderOutOfBandTrust()
+    {
+        // When the service contract returns no server-asserted id, the response-vs-request check is
+        // skipped and drafts are emitted under the documented out-of-band trust assumption.
+        var source = new XRoadAttestationSource(new FakeClient(new XRoadRegistryRecord
+        {
+            PersonFound = true,
+            AssertedNationalId = null,
+            ResidencyCountry = "KZ",
+        }));
+        var drafts = await source.ResolveAsync(Subject("123456"));
+        Assert.Single(drafts);
+        Assert.Equal(AttestationTypes.Jurisdiction, drafts[0].Type);
     }
 
     [Fact]

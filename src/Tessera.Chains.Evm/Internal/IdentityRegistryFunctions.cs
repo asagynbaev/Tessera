@@ -13,6 +13,8 @@ internal sealed class RegisterDidFunction : FunctionMessage
 {
     [Parameter("bytes32", "didHash", 1)] public byte[] DidHash { get; set; } = default!;
     [Parameter("bytes32", "attestationRoot", 2)] public byte[] AttestationRoot { get; set; } = default!;
+    [Parameter("address", "controller", 3)] public string Controller { get; set; } = default!;
+    [Parameter("bytes", "signature", 4)] public byte[] Signature { get; set; } = default!;
 }
 
 [Function("updateRoot")]

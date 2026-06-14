@@ -34,6 +34,13 @@ public sealed record MerkleInclusionProof
 /// Holder-signed envelope tying this presentation to a specific verifier, session, and chain epoch.
 /// Prevents replay across verifiers and across revocation states.
 /// </summary>
+/// <remarks>
+/// <see cref="HolderSignature"/> is an Ed25519 signature over <see cref="PresentationChallenge"/>
+/// (which covers the verifier, nonce, epoch, chain, timestamp, and disclosed leaf hashes), made with
+/// the holder's controller private key. <see cref="HolderPublicKey"/> is the matching controller
+/// public key; the verifier confirms <c>DidId.FromControllerKey(HolderPublicKey) == Holder</c> and
+/// then checks the signature, authenticating the presenter as the holder without trusting any store.
+/// </remarks>
 public sealed record PresentationBinding
 {
     public required DidId Verifier { get; init; }
@@ -41,5 +48,9 @@ public sealed record PresentationBinding
     public required ulong AsOfRevocationEpoch { get; init; }
     public required string Chain { get; init; }
     public required byte[] HolderSignature { get; init; }
+
+    /// <summary>The holder's 32-byte Ed25519 controller public key; must re-derive to <c>Holder</c>.</summary>
+    public required byte[] HolderPublicKey { get; init; }
+
     public required DateTimeOffset CreatedAt { get; init; }
 }

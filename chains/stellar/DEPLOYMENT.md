@@ -4,9 +4,17 @@ How to build and deploy the `attestation-verifier` Soroban contract on Stellar.
 Tessera is chain-agnostic — any network is an equal anchor target. For the Solana
 adapter flow see [`docs/deploying-solana.md`](../../docs/deploying-solana.md).
 
-This contract verifies HMAC-based proofs and runs structural validation of
-Bulletproof envelopes on-chain. Full Bulletproofs EC verification stays
-off-chain in `Tessera.Attestations.CredentialProof.Verify`.
+This contract verifies issuer **Ed25519 signatures** over attestation messages and
+runs structural validation of Bulletproof envelopes on-chain. Full Bulletproofs EC
+verification stays off-chain in `Tessera.Attestations.CredentialProof.Verify`.
+
+> **Security note.** Earlier revisions of this contract accepted the HMAC secret key
+> as a public `verify_proof` argument. On Soroban every invocation argument is recorded
+> on-ledger, so that "secret" leaked on first use and let any caller forge a valid HMAC
+> for arbitrary data — it authenticated nothing. The contract now uses a public-key
+> scheme: the trusted issuer's **Ed25519 public key** is stored in instance storage by
+> an authenticated admin, and `verify_proof` checks the issuer's signature against it.
+> No secret of any kind is ever passed in by the caller.
 
 ## Prerequisites
 
@@ -121,31 +129,64 @@ stellar contract deploy \
   --network mainnet
 ```
 
-## Step 5: Verify Deployment
+## Step 5: Initialize the Contract and Register the Issuer Key
 
-Test that your contract is deployed and working:
+The contract must be initialized **once** with an admin address, after which the admin
+registers the trusted issuer's **Ed25519 public key** (32 bytes). No secret is ever sent
+on-chain — only the issuer's public key is stored.
 
 ```bash
-# Set your contract ID as an environment variable
 export CONTRACT_ID="CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 
-# Prepare test data (example)
-# Note: You'll need to encode these properly as XDR
+# 1) Initialize with the admin address (signed by that same key — require_auth).
+stellar contract invoke \
+  --id $CONTRACT_ID \
+  --source alice \
+  --network testnet \
+  -- \
+  initialize \
+  --admin alice
+
+# 2) Register the trusted issuer Ed25519 public key (32-byte hex or base64 XDR).
+#    This is the PUBLIC key of the off-chain key Tessera uses to sign attestations.
+stellar contract invoke \
+  --id $CONTRACT_ID \
+  --source alice \
+  --network testnet \
+  -- \
+  set_issuer \
+  --issuer_pubkey <ISSUER_ED25519_PUBLIC_KEY_32_BYTES>
+```
+
+To rotate the issuer key later, the admin simply calls `set_issuer` again.
+
+## Step 6: Verify Deployment
+
+Test that your contract is deployed and working. Note that **no key argument** is passed
+to `verify_proof` — the signature is checked against the stored issuer public key. The
+`signature` is the issuer's 64-byte Ed25519 signature over the canonical message
+`data || salt`.
+
+```bash
 stellar contract invoke \
   --id $CONTRACT_ID \
   --source alice \
   --network testnet \
   -- \
   verify_proof \
-  --proof "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" \
+  --signature <ISSUER_ED25519_SIGNATURE_64_BYTES> \
   --data "dGVzdC1kYXRh" \
-  --salt "cmFuZG9tc2FsdDEyMzQ1Ng==" \
-  --hmac_key "V0V3Mv4D1USxZYwWL4eG93m0JKdO9KbXQn0mhg+EXHc="
+  --salt "cmFuZG9tc2FsdDEyMzQ1Ng=="
 ```
 
-## Step 6: Configure Your C# Application
+`verify_proof` returns `true` on success and **traps (reverts)** if the signature does
+not verify, so an invalid proof fails the transaction rather than returning a value.
 
-After deployment, configure your Tessera application:
+## Step 7: Configure Your C# Application
+
+After deployment, configure your Tessera application. The verifier holds only the issuer's
+**public** key, so the only key material near the client is the issuer's *signing* secret,
+which lives wherever attestations are issued — it is **never** sent to the contract.
 
 ### Environment Variables
 
@@ -153,12 +194,17 @@ After deployment, configure your Tessera application:
 # Set the contract ID
 export ZKP_CONTRACT_ID="CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 
-# Set the HMAC key (same key used in the contract)
-export ZKP_HMAC_KEY="V0V3Mv4D1USxZYwWL4eG93m0JKdO9KbXQn0mhg+EXHc="
+# The issuer's Ed25519 PUBLIC key registered on-chain via set_issuer (non-secret).
+# Used to cross-check which issuer the contract trusts; NOT a secret.
+export ZKP_ISSUER_PUBLIC_KEY="<ISSUER_ED25519_PUBLIC_KEY_32_BYTES>"
 
 # Funded G... account on this network (required for Soroban simulateTransaction envelope)
 export ZKP_SOURCE_ACCOUNT="GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 ```
+
+> The attestation **signing key** (the issuer's Ed25519 *secret* key) must be kept in a
+> secure signer/KMS on the issuing side and must never be placed in environment variables
+> shared with verifiers or committed to source control.
 
 ### appsettings.json (Alternative)
 
@@ -170,12 +216,12 @@ export ZKP_SOURCE_ACCOUNT="GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     "SorobanRpcUrl": "https://soroban-testnet.stellar.org"
   },
   "Tessera": {
-    "HmacKey": "V0V3Mv4D1USxZYwWL4eG93m0JKdO9KbXQn0mhg+EXHc="
+    "IssuerPublicKey": "<ISSUER_ED25519_PUBLIC_KEY_32_BYTES>"
   }
 }
 ```
 
-## Step 7: Exercise the contract from C#
+## Step 8: Exercise the contract from C#
 
 The `Tessera.Chains.Stellar` C# adapter is currently a scaffold — the dedicated
 anchor-storage contract has not been written yet (see

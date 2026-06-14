@@ -13,6 +13,35 @@ namespace Tessera.Chains.Solana.Instructions;
 internal static class IdentityRegistryInstructions
 {
     /// <summary>
+    /// Build an <c>initialize</c> instruction that creates the singleton <c>RegistryConfig</c>
+    /// PDA and records the registry <paramref name="admin"/>.
+    /// Account order (from <c>Initialize&lt;'info&gt;</c>): registry_config (PDA, init), payer (signer), system_program.
+    /// </summary>
+    public static TransactionInstruction Initialize(
+        PublicKey programId,
+        PublicKey registryConfigPda,
+        PublicKey payer,
+        PublicKey admin)
+    {
+        var data = new AnchorBorshWriter()
+            .WriteFixedBytes(IdentityRegistryDiscriminators.Initialize, 8)
+            .WritePubkey(admin.KeyBytes)
+            .ToArray();
+
+        return new TransactionInstruction
+        {
+            ProgramId = programId.KeyBytes,
+            Keys = new List<AccountMeta>
+            {
+                AccountMeta.Writable(registryConfigPda, isSigner: false),
+                AccountMeta.Writable(payer, isSigner: true),
+                AccountMeta.ReadOnly(SystemProgram.ProgramIdKey, isSigner: false),
+            },
+            Data = data,
+        };
+    }
+
+    /// <summary>
     /// Build a <c>register_did</c> instruction.
     /// Account order (from <c>RegisterDid&lt;'info&gt;</c>): did_anchor (PDA, init), owner (signer, payer), system_program.
     /// </summary>
@@ -101,15 +130,17 @@ internal static class IdentityRegistryInstructions
     }
 
     /// <summary>
-    /// Build a <c>register_issuer</c> instruction.
-    /// Account order (from <c>RegisterIssuer&lt;'info&gt;</c>): issuer (PDA, init), signing_key (readonly),
-    /// authority (signer, payer), system_program.
+    /// Build a <c>register_issuer</c> instruction. ADMIN-GATED on-chain: <paramref name="admin"/>
+    /// must sign and must equal <c>RegistryConfig.admin</c>.
+    /// Account order (from <c>RegisterIssuer&lt;'info&gt;</c>): registry_config (PDA, readonly),
+    /// issuer (PDA, init), signing_key (readonly), admin (signer, payer), system_program.
     /// </summary>
     public static TransactionInstruction RegisterIssuer(
         PublicKey programId,
+        PublicKey registryConfigPda,
         PublicKey issuerPda,
         PublicKey signingKey,
-        PublicKey authority,
+        PublicKey admin,
         ReadOnlySpan<byte> issuerDidHash,
         string schemaUri)
     {
@@ -127,10 +158,40 @@ internal static class IdentityRegistryInstructions
             ProgramId = programId.KeyBytes,
             Keys = new List<AccountMeta>
             {
+                AccountMeta.ReadOnly(registryConfigPda, isSigner: false),
                 AccountMeta.Writable(issuerPda, isSigner: false),
                 AccountMeta.ReadOnly(signingKey, isSigner: false),
-                AccountMeta.Writable(authority, isSigner: true),
+                AccountMeta.Writable(admin, isSigner: true),
                 AccountMeta.ReadOnly(SystemProgram.ProgramIdKey, isSigner: false),
+            },
+            Data = data,
+        };
+    }
+
+    /// <summary>
+    /// Build a <c>deactivate_issuer</c> instruction. ADMIN-GATED on-chain: <paramref name="admin"/>
+    /// must sign and must equal <c>RegistryConfig.admin</c>.
+    /// Account order (from <c>DeactivateIssuer&lt;'info&gt;</c>): registry_config (PDA, readonly),
+    /// issuer (PDA, mut), admin (signer).
+    /// </summary>
+    public static TransactionInstruction DeactivateIssuer(
+        PublicKey programId,
+        PublicKey registryConfigPda,
+        PublicKey issuerPda,
+        PublicKey admin)
+    {
+        var data = new AnchorBorshWriter()
+            .WriteFixedBytes(IdentityRegistryDiscriminators.DeactivateIssuer, 8)
+            .ToArray();
+
+        return new TransactionInstruction
+        {
+            ProgramId = programId.KeyBytes,
+            Keys = new List<AccountMeta>
+            {
+                AccountMeta.ReadOnly(registryConfigPda, isSigner: false),
+                AccountMeta.Writable(issuerPda, isSigner: false),
+                AccountMeta.ReadOnly(admin, isSigner: true),
             },
             Data = data,
         };

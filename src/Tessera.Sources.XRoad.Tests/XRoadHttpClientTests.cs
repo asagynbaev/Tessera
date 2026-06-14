@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Tessera.Sources.XRoad;
 
 namespace Tessera.Sources.XRoad.Tests;
@@ -36,5 +37,54 @@ public class XRoadHttpClientTests
     {
         Assert.Throws<ArgumentException>(() => new XRoadHttpClient(new HttpClient(),
             new XRoadHttpClientOptions { SecurityServerUrl = "", ClientId = "c", ServiceId = "s" }));
+    }
+
+    [Fact]
+    public void Ctor_RejectsHttpSecurityServerUrl()
+    {
+        // X-Road requires mutually-authenticated TLS; refuse cleartext http.
+        Assert.Throws<ArgumentException>(() => new XRoadHttpClient(new HttpClient(),
+            new XRoadHttpClientOptions { SecurityServerUrl = "http://ss.example.gov", ClientId = "c", ServiceId = "s" }));
+    }
+
+    [Fact]
+    public void Ctor_RejectsNonAbsoluteSecurityServerUrl()
+    {
+        Assert.Throws<ArgumentException>(() => new XRoadHttpClient(new HttpClient(),
+            new XRoadHttpClientOptions { SecurityServerUrl = "ss.example.gov", ClientId = "c", ServiceId = "s" }));
+    }
+
+    [Fact]
+    public void MapRecord_UsesServerAssertedNationalIdAndParcel()
+    {
+        using var doc = JsonDocument.Parse(
+            """
+            {
+              "personFound": true,
+              "nationalId": "123456",
+              "residencyCountry": "KZ",
+              "property": { "ownershipConfirmed": true, "parcelId": "SERVER-09-1", "encumbrance": "none" }
+            }
+            """);
+        // Caller passed a DIFFERENT parcel id in the query; the server-asserted one must win.
+        var record = XRoadHttpClient.MapRecord(new XRoadQuery { NationalId = "123456", ParcelId = "CALLER-99" }, doc.RootElement);
+
+        Assert.True(record.PersonFound);
+        Assert.Equal("123456", record.AssertedNationalId);
+        Assert.Equal("SERVER-09-1", record.ParcelId);
+        Assert.Equal("none", record.EncumbranceStatus);
+    }
+
+    [Fact]
+    public void MapRecord_FallsBackToQueryParcel_WhenResponseOmitsIt()
+    {
+        using var doc = JsonDocument.Parse(
+            """
+            { "personFound": true, "property": { "ownershipConfirmed": true } }
+            """);
+        var record = XRoadHttpClient.MapRecord(new XRoadQuery { NationalId = "123456", ParcelId = "CALLER-99" }, doc.RootElement);
+
+        Assert.Null(record.AssertedNationalId);
+        Assert.Equal("CALLER-99", record.ParcelId);
     }
 }

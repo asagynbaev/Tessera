@@ -10,6 +10,7 @@
 //// documented eUTXO trust boundary.
 
 use aiken/collection/dict
+use aiken/primitive/bytearray
 use cardano/address.{Address, Script, VerificationKey}
 use cardano/assets.{PolicyId, from_asset, quantity_of, tokens, zero}
 use cardano/transaction.{Output, OutputReference, Transaction, placeholder}
@@ -20,9 +21,25 @@ use identity_registry/types.{
 }
 use identity_registry/validation
 
+/// SHA-256 DID-hash digest length (`SHA-256(utf8(did))`), 32 bytes.
+const did_hash_len: Int = 32
+
 validator identity_anchor {
   // register_did: mint the unique thread token (asset name = did_hash) and
   // create the anchor UTxO at this script's own address.
+  //
+  // Owner/controller model (parity with EVM `registerDid` and Solana
+  // `register_did`): `did_hash` is PUBLIC (`SHA-256(utf8(did))`), so the
+  // on-chain layer cannot — and deliberately does not — derive the controller
+  // from it. Instead the named `controller` proves control by SIGNING the
+  // registration, and that key becomes the anchor owner that every later
+  // update_root / bump_revocation is gated on. Because the controller's vkey
+  // witness signs the whole body, the signature also commits to the output
+  // datum (did_hash ‖ attestation_root ‖ epoch ‖ controller) — the eUTXO
+  // analogue of the EVM controller signature over (didHash, root, …). The
+  // did_hash ↔ controller-key binding itself is verified OFF-CHAIN by resolving
+  // the DID document (same as the EVM/Solana adapters); the documented eUTXO
+  // "first-to-claim" boundary below is intentional and matches those chains.
   mint(redeemer: AnchorMintRedeemer, policy_id: PolicyId, self: Transaction) {
     when redeemer is {
       RegisterDid -> {
@@ -40,9 +57,12 @@ validator identity_anchor {
         and {
           // the token name binds the thread token to the datum's DID,
           datum.did_hash == asset_name,
+          // the DID hash is a well-formed SHA-256 digest (32 bytes),
+          bytearray.length(datum.did_hash) == did_hash_len,
           // fresh anchors start at epoch 0,
           datum.revocation_epoch == 0,
-          // and the controller must authorise their own registration.
+          // and the controller must authorise their own registration: their
+          // vkey witness signs the body, committing to this exact datum.
           validation.signed_by(self.extra_signatories, datum.controller),
         }
       }

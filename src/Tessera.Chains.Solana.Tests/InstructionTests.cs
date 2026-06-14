@@ -11,6 +11,7 @@ public class InstructionTests
     private static readonly PublicKey Program = new("11111111111111111111111111111114");
     private static readonly PublicKey PdaKey = new("11111111111111111111111111111112");
     private static readonly PublicKey Owner = new("11111111111111111111111111111113");
+    private static readonly PublicKey ConfigKey = new("11111111111111111111111111111115");
 
     private static byte[] FilledHash(byte seed)
     {
@@ -99,14 +100,42 @@ public class InstructionTests
     }
 
     [Fact]
+    public void Initialize_DataLayout()
+    {
+        var admin = Owner;
+        var ix = IdentityRegistryInstructions.Initialize(Program, ConfigKey, payer: Owner, admin: admin);
+
+        // 8 discriminator + 32 admin pubkey
+        Assert.Equal(8 + 32, ix.Data.Length);
+        Assert.Equal(IdentityRegistryDiscriminators.Initialize, ix.Data[..8]);
+        Assert.Equal(admin.KeyBytes, ix.Data[8..40]);
+    }
+
+    [Fact]
+    public void Initialize_AccountList()
+    {
+        var ix = IdentityRegistryInstructions.Initialize(Program, ConfigKey, payer: Owner, admin: Owner);
+
+        Assert.Equal(3, ix.Keys.Count);
+        Assert.Equal(ConfigKey.Key, ix.Keys[0].PublicKey);  // registry_config PDA (init)
+        Assert.True(ix.Keys[0].IsWritable);
+        Assert.False(ix.Keys[0].IsSigner);
+        Assert.True(ix.Keys[1].IsWritable);                  // payer
+        Assert.True(ix.Keys[1].IsSigner);
+        Assert.False(ix.Keys[2].IsWritable);                 // system_program
+        Assert.False(ix.Keys[2].IsSigner);
+    }
+
+    [Fact]
     public void RegisterIssuer_DataLayout()
     {
         var issuerHash = FilledHash(7);
         var ix = IdentityRegistryInstructions.RegisterIssuer(
             Program,
+            registryConfigPda: ConfigKey,
             issuerPda: PdaKey,
             signingKey: Owner,
-            authority: Owner,
+            admin: Owner,
             issuerDidHash: issuerHash,
             schemaUri: "v1");
 
@@ -123,14 +152,22 @@ public class InstructionTests
     public void RegisterIssuer_AccountList()
     {
         var ix = IdentityRegistryInstructions.RegisterIssuer(
-            Program, PdaKey, Owner, Owner, FilledHash(0), "x");
+            Program, ConfigKey, PdaKey, Owner, Owner, FilledHash(0), "x");
 
-        Assert.Equal(4, ix.Keys.Count);
-        Assert.True(ix.Keys[0].IsWritable);     // issuer PDA (init)
-        Assert.False(ix.Keys[1].IsWritable);    // signing_key — readonly
-        Assert.True(ix.Keys[2].IsWritable);     // authority pays rent
-        Assert.True(ix.Keys[2].IsSigner);
-        Assert.False(ix.Keys[3].IsWritable);    // system_program
+        // Order must match Rust RegisterIssuer<'info>: registry_config, issuer, signing_key, admin, system_program.
+        Assert.Equal(5, ix.Keys.Count);
+        Assert.Equal(ConfigKey.Key, ix.Keys[0].PublicKey);  // registry_config — readonly, not signer
+        Assert.False(ix.Keys[0].IsWritable);
+        Assert.False(ix.Keys[0].IsSigner);
+        Assert.Equal(PdaKey.Key, ix.Keys[1].PublicKey);     // issuer PDA (init) — writable
+        Assert.True(ix.Keys[1].IsWritable);
+        Assert.False(ix.Keys[1].IsSigner);
+        Assert.False(ix.Keys[2].IsWritable);                 // signing_key — readonly
+        Assert.False(ix.Keys[2].IsSigner);
+        Assert.True(ix.Keys[3].IsWritable);                  // admin pays rent — writable signer
+        Assert.True(ix.Keys[3].IsSigner);
+        Assert.False(ix.Keys[4].IsWritable);                 // system_program
+        Assert.False(ix.Keys[4].IsSigner);
     }
 
     [Fact]
@@ -139,6 +176,30 @@ public class InstructionTests
         var hash = FilledHash(0);
         var tooLong = new string('a', 201);  // MAX_SCHEMA_URI_LEN = 200
         Assert.Throws<ArgumentException>(() =>
-            IdentityRegistryInstructions.RegisterIssuer(Program, PdaKey, Owner, Owner, hash, tooLong));
+            IdentityRegistryInstructions.RegisterIssuer(Program, ConfigKey, PdaKey, Owner, Owner, hash, tooLong));
+    }
+
+    [Fact]
+    public void DeactivateIssuer_DataLayout()
+    {
+        var ix = IdentityRegistryInstructions.DeactivateIssuer(Program, ConfigKey, PdaKey, admin: Owner);
+
+        Assert.Equal(8, ix.Data.Length);
+        Assert.Equal(IdentityRegistryDiscriminators.DeactivateIssuer, ix.Data[..8]);
+    }
+
+    [Fact]
+    public void DeactivateIssuer_AccountList()
+    {
+        var ix = IdentityRegistryInstructions.DeactivateIssuer(Program, ConfigKey, PdaKey, admin: Owner);
+
+        // Order must match Rust DeactivateIssuer<'info>: registry_config, issuer, admin.
+        Assert.Equal(3, ix.Keys.Count);
+        Assert.Equal(ConfigKey.Key, ix.Keys[0].PublicKey);  // registry_config — readonly
+        Assert.False(ix.Keys[0].IsWritable);
+        Assert.True(ix.Keys[1].IsWritable);                  // issuer PDA — mut
+        Assert.False(ix.Keys[1].IsSigner);
+        Assert.False(ix.Keys[2].IsWritable);                 // admin — readonly signer
+        Assert.True(ix.Keys[2].IsSigner);
     }
 }

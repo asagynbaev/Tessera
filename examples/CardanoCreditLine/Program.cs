@@ -66,7 +66,7 @@ var (commitment, opening) = proof.CommitValue(annualIncome);
 Console.WriteLine($"Issuer committed annual_income (hidden). Threshold to clear: {required:N0}.");
 
 // ── 3. Holder: accept the attestation, anchor the root on Cardano ────────────
-var (_, holderPub) = Ed25519.GenerateKeypair();
+var (holderPriv, holderPub) = Ed25519.GenerateKeypair();
 var holder = await Holder.CreateAsync(holderPub, new HolderOptions
 {
     Store = new InMemoryDidStore(),
@@ -120,8 +120,18 @@ var presentation = new Presentation
         SessionNonce = sessionNonce,
         AsOfRevocationEpoch = 0,
         Chain = anchor.ChainId,
-        HolderSignature = RandomNumberGenerator.GetBytes(64), // wallet signature; no layer re-checks it here
+        HolderSignature = Array.Empty<byte>(), // placeholder, replaced below
+        HolderPublicKey = holderPub,
         CreatedAt = DateTimeOffset.UtcNow,
+    },
+};
+
+// The presenter authenticates by signing the canonical challenge with the holder controller key.
+presentation = presentation with
+{
+    Binding = presentation.Binding with
+    {
+        HolderSignature = Ed25519.Sign(holderPriv, PresentationChallenge.Compute(presentation)),
     },
 };
 

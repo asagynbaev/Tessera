@@ -14,22 +14,25 @@ public class SumsubAttestationSourceTests
             => Task.FromResult(_review);
     }
 
+    private const string SubjectDid = "did:tessera:subject";
+
     private static SubjectContext Subject(string? applicantId) => new()
     {
-        Subject = new DidId("did:tessera:subject"),
+        Subject = new DidId(SubjectDid),
         Parameters = applicantId is null
             ? new Dictionary<string, string>()
             : new Dictionary<string, string> { [SumsubAttestationSource.ApplicantIdKey] = applicantId },
     };
 
     [Fact]
-    public async Task ApprovedApplicant_EmitsKycAndJurisdiction()
+    public async Task ApprovedApplicant_BoundToDid_EmitsKycAndJurisdiction()
     {
         var source = new SumsubAttestationSource(new FakeClient(new SumsubApplicantReview
         {
             ApplicantId = "app-1",
             Approved = true,
             ReviewAnswer = "GREEN",
+            ExternalUserId = SubjectDid,
             LevelName = "basic-kyc",
             Country = "KAZ",
         }));
@@ -46,11 +49,45 @@ public class SumsubAttestationSourceTests
     }
 
     [Fact]
+    public async Task ApprovedApplicant_ExternalUserIdMismatch_EmitsNothing()
+    {
+        // GREEN applicant, but bound to a DIFFERENT DID: the identity-transplant guard must refuse.
+        var source = new SumsubAttestationSource(new FakeClient(new SumsubApplicantReview
+        {
+            ApplicantId = "app-1",
+            Approved = true,
+            ReviewAnswer = "GREEN",
+            ExternalUserId = "did:tessera:someone-else",
+            LevelName = "basic-kyc",
+            Country = "KAZ",
+        }));
+
+        Assert.Empty(await source.ResolveAsync(Subject("app-1")));
+    }
+
+    [Fact]
+    public async Task ApprovedApplicant_MissingExternalUserId_EmitsNothing()
+    {
+        // GREEN applicant with no externalUserId binding at all: refuse — we cannot prove it is the DID's.
+        var source = new SumsubAttestationSource(new FakeClient(new SumsubApplicantReview
+        {
+            ApplicantId = "app-1",
+            Approved = true,
+            ReviewAnswer = "GREEN",
+            ExternalUserId = null,
+            LevelName = "basic-kyc",
+            Country = "KAZ",
+        }));
+
+        Assert.Empty(await source.ResolveAsync(Subject("app-1")));
+    }
+
+    [Fact]
     public async Task NotApproved_EmitsNothing()
     {
         var source = new SumsubAttestationSource(new FakeClient(new SumsubApplicantReview
         {
-            ApplicantId = "app-1", Approved = false, ReviewAnswer = "RED",
+            ApplicantId = "app-1", Approved = false, ReviewAnswer = "RED", ExternalUserId = SubjectDid,
         }));
         Assert.Empty(await source.ResolveAsync(Subject("app-1")));
     }
@@ -67,7 +104,7 @@ public class SumsubAttestationSourceTests
     {
         var source = new SumsubAttestationSource(new FakeClient(new SumsubApplicantReview
         {
-            ApplicantId = "app-1", Approved = true, ReviewAnswer = "GREEN", LevelName = "basic",
+            ApplicantId = "app-1", Approved = true, ReviewAnswer = "GREEN", ExternalUserId = SubjectDid, LevelName = "basic",
         }));
 
         var drafts = await source.ResolveAsync(Subject("app-1"));

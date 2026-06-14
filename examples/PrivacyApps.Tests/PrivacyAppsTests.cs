@@ -1,5 +1,8 @@
 using Xunit;
 using Tessera.Examples.PrivacyApps;
+using Tessera.Crypto;
+using Tessera.Crypto.Bulletproofs;
+using Tessera.Crypto.Secp256k1;
 
 namespace Tessera.Examples.PrivacyApps.Tests
 {
@@ -60,6 +63,73 @@ namespace Tessera.Examples.PrivacyApps.Tests
             string serialized = _ct.Serialize(bundle);
             var restored = _ct.Deserialize(serialized);
             Assert.True(_ct.VerifyTransfer(restored));
+        }
+
+        // --- H15 malicious-case tests: balance conservation must be enforced ---
+
+        [Fact]
+        public void Verify_AgainstTrustedBalanceCommitment_Succeeds()
+        {
+            var bundle = _ct.CreateTransfer(senderBalance: 8000, transferAmount: 3000);
+            // A verifier supplying the matching trusted balance commitment accepts it.
+            Assert.True(_ct.VerifyTransfer(bundle, bundle.SenderBalanceCommitment));
+        }
+
+        [Fact]
+        public void Verify_NonConservingCommitments_Fails()
+        {
+            // Forge a bundle where amount + change do NOT equal the claimed balance:
+            // both amount (5000) and change (5000) carry valid non-negative range proofs,
+            // but they sum to 10000 while the sender's real balance is only 6000.
+            // Without the conservation check this would let the sender inflate value.
+            var (amountProof, amountV) = RangeProof.Prove(Scalar.From(5000), Scalar.Random(), 64);
+            var (changeProof, changeV) = RangeProof.Prove(Scalar.From(5000), Scalar.Random(), 64);
+
+            var realBalanceCommitment = PedersenCommitment.Commit(Scalar.From(6000), Scalar.Random());
+
+            var forged = new TransferBundle
+            {
+                AmountCommitment = amountV.Encode(),
+                AmountProof = amountProof.ToBytes(),
+                ChangeCommitment = changeV.Encode(),
+                ChangeProof = changeProof.ToBytes(),
+                SenderBalanceCommitment = realBalanceCommitment.Encode()
+            };
+
+            // The two range proofs are individually valid, but conservation fails.
+            Assert.False(_ct.VerifyTransfer(forged, realBalanceCommitment.Encode()));
+        }
+
+        [Fact]
+        public void Verify_ChangeExceedingBalance_Fails()
+        {
+            // Sender's true balance is 1000, but they craft a transfer whose hidden change
+            // commitment (1,000,000) exceeds the balance. The change is non-negative (range
+            // proof passes) yet amount + change != balance, so verification must reject it.
+            var (amountProof, amountV) = RangeProof.Prove(Scalar.From(0), Scalar.Random(), 64);
+            var (changeProof, changeV) = RangeProof.Prove(Scalar.From(1_000_000), Scalar.Random(), 64);
+
+            var trustedBalance = PedersenCommitment.Commit(Scalar.From(1000), Scalar.Random());
+
+            var forged = new TransferBundle
+            {
+                AmountCommitment = amountV.Encode(),
+                AmountProof = amountProof.ToBytes(),
+                ChangeCommitment = changeV.Encode(),
+                ChangeProof = changeProof.ToBytes(),
+                SenderBalanceCommitment = trustedBalance.Encode()
+            };
+
+            Assert.False(_ct.VerifyTransfer(forged, trustedBalance.Encode()));
+        }
+
+        [Fact]
+        public void Verify_WrongTrustedBalanceCommitment_Fails()
+        {
+            // A legitimate bundle, but checked against a balance commitment for a DIFFERENT balance.
+            var bundle = _ct.CreateTransfer(senderBalance: 8000, transferAmount: 3000);
+            var wrongBalance = PedersenCommitment.Commit(Scalar.From(8000), Scalar.Random());
+            Assert.False(_ct.VerifyTransfer(bundle, wrongBalance.Encode()));
         }
     }
 
@@ -128,6 +198,68 @@ namespace Tessera.Examples.PrivacyApps.Tests
             Assert.True(auction.VerifyBid(bid));
             Assert.Equal(100, auction.RevealBid(bid, secret));
         }
+
+        [Fact]
+        public void PlaceBid_MaximumBid_Valid()
+        {
+            var auction = new SealedBidAuction(100, 50000);
+            var (bid, secret) = auction.PlaceBid(50000);
+            Assert.True(auction.VerifyBid(bid));
+            Assert.Equal(50000, auction.RevealBid(bid, secret));
+        }
+
+        // --- H14 malicious-case tests: the maxBid upper bound must be enforced ---
+
+        [Fact]
+        public void VerifyBid_AboveMaxBid_Fails()
+        {
+            const long minBid = 100, maxBid = 50000;
+            const long cheating = 1_000_000; // far above maxBid
+            var auction = new SealedBidAuction(minBid, maxBid);
+
+            // Attacker builds the commitment C = cheating·G + r·H and a VALID lower proof
+            // (cheating − minBid ≥ 0). The upper bound (maxBid − cheating) is negative and cannot
+            // be honestly proven, so the attacker can only attach a bogus upper proof.
+            var r = Scalar.Random();
+            var (lowerProof, vLow) = RangeProof.Prove(Scalar.From(cheating - minBid), r, 64);
+            // Bogus upper proof for an unrelated non-negative value.
+            var (bogusUpper, _) = RangeProof.Prove(Scalar.From(42), Scalar.Random(), 64);
+
+            var forged = new SealedBid
+            {
+                Commitment = vLow.Encode(),
+                RangeProof = lowerProof.ToBytes(),
+                UpperRangeProof = bogusUpper.ToBytes(),
+                MinBid = minBid,
+                MaxBid = maxBid
+            };
+
+            Assert.False(auction.VerifyBid(forged));
+        }
+
+        [Fact]
+        public void RevealBid_AboveMaxBid_ReturnsNull()
+        {
+            const long minBid = 100, maxBid = 50000;
+            const long cheating = 1_000_000;
+            var auction = new SealedBidAuction(minBid, maxBid);
+
+            var r = Scalar.Random();
+            var (lowerProof, vLow) = RangeProof.Prove(Scalar.From(cheating - minBid), r, 64);
+
+            var forged = new SealedBid
+            {
+                Commitment = vLow.Encode(),
+                RangeProof = lowerProof.ToBytes(),
+                UpperRangeProof = Array.Empty<byte>(),
+                MinBid = minBid,
+                MaxBid = maxBid
+            };
+            var opening = new BidOpening { Amount = cheating, BlindingFactor = r.ToBytes() };
+
+            // Even though the opening matches the commitment, the amount is out of range.
+            Assert.Null(auction.RevealBid(forged, opening));
+        }
     }
 
     public class PrivateVotingTests
@@ -194,6 +326,29 @@ namespace Tessera.Examples.PrivacyApps.Tests
                 new[] { s1, s3 });
 
             Assert.Null(result);
+        }
+
+        // --- H13 malicious-case tests: a non-binary vote must be rejected ---
+
+        [Theory]
+        [InlineData(2L)]
+        [InlineData(1000L)]
+        public void VerifyBallot_NonBinaryVote_Fails(long maliciousValue)
+        {
+            // A malicious voter commits to a value outside {0, 1} to inflate the tally.
+            // Such a value cannot be proven with a 1-bit range proof, so the attacker can only
+            // attach a wider (64-bit) proof -- exactly what the vulnerable code accepted. The
+            // hardened VerifyBallot verifies at 1 bit and must reject it.
+            var blinding = Scalar.Random();
+            var (wideProof, v) = RangeProof.Prove(Scalar.From(maliciousValue), blinding, 64);
+
+            var maliciousBallot = new Ballot
+            {
+                Commitment = v.Encode(),
+                ValidityProof = wideProof.ToBytes()
+            };
+
+            Assert.False(_voting.VerifyBallot(maliciousBallot));
         }
     }
 }

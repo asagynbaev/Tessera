@@ -22,6 +22,10 @@ pub const controller: ByteArray =
 pub const other_key: ByteArray =
   #"bebebebebebebebebebebebebebebebebebebebebebebebebebebebe"
 
+/// Governance admin verification-key hash gating issuer registration (C7).
+pub const admin_key: ByteArray =
+  #"adadadadadadadadadadadadadadadadadadadadadadadadadadadad"
+
 pub const did_hash: ByteArray =
   #"d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1"
 

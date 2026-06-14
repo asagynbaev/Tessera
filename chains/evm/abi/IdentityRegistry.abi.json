@@ -17,6 +17,11 @@
   },
   {
     "inputs": [],
+    "name": "InvalidSignature",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "NotAuthority",
     "type": "error"
   },
@@ -38,6 +43,11 @@
   {
     "inputs": [],
     "name": "ZeroAuthority",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ZeroController",
     "type": "error"
   },
   {
@@ -323,6 +333,16 @@
         "internalType": "bytes32",
         "name": "attestationRoot",
         "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "controller",
+        "type": "address"
+      },
+      {
+        "internalType": "bytes",
+        "name": "signature",
+        "type": "bytes"
       }
     ],
     "name": "registerDid",

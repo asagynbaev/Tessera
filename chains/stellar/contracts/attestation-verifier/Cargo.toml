@@ -13,3 +13,7 @@ soroban-sdk = { workspace = true }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
+# Used only by unit tests to produce real Ed25519 issuer signatures over the
+# canonical message so that `env.crypto().ed25519_verify` succeeds in-test.
+# `default-features = false` avoids pulling `rand`; tests use deterministic seeds.
+ed25519-dalek = { version = "2", default-features = false }

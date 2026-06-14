@@ -162,9 +162,70 @@ public sealed class Holder
     // ── presentation building ─────────────────────────────────────────────
 
     /// <summary>
-    /// Build a verifiable presentation disclosing the attestations at <paramref name="indices"/>
-    /// to the named verifier. Bind it to a fresh session nonce and to the on-chain revocation
-    /// epoch so the verifier can reject stale or replayed presentations.
+    /// Compute the canonical challenge the holder must sign for a presentation. Hand these bytes to
+    /// your signer (the controller private key) and pass the resulting signature, together with the
+    /// SAME <paramref name="createdAt"/>, to <see cref="BuildPresentation(DidId, IEnumerable{int}, byte[], ulong, string, byte[], DateTimeOffset)"/>.
+    /// Prefer <see cref="BuildSignedPresentation(DidId, IEnumerable{int}, byte[], ulong, string, Func{ReadOnlyMemory{byte}, byte[]})"/>,
+    /// which coordinates the timestamp for you.
+    /// </summary>
+    public byte[] BuildPresentationChallenge(
+        DidId verifier,
+        IEnumerable<int> indices,
+        byte[] sessionNonce,
+        ulong asOfRevocationEpoch,
+        string chain,
+        DateTimeOffset createdAt)
+    {
+        ArgumentNullException.ThrowIfNull(sessionNonce);
+        ArgumentNullException.ThrowIfNull(chain);
+        var disclosures = ResolveDisclosures(indices);
+        var leafHashes = disclosures.Select(d => d.MerkleProof.LeafHash).ToList();
+        return PresentationChallenge.Compute(
+            _document.Id, verifier, sessionNonce, asOfRevocationEpoch, chain, createdAt, leafHashes);
+    }
+
+    /// <summary>
+    /// Build a verifiable presentation disclosing the attestations at <paramref name="indices"/>, by
+    /// signing the canonical challenge with the holder's controller key via <paramref name="signChallenge"/>.
+    /// This is the recommended path: it stamps a fresh <c>CreatedAt</c>, builds the challenge, signs it,
+    /// and assembles the presentation so the signed bytes and the binding can never drift apart.
+    /// </summary>
+    /// <param name="signChallenge">
+    /// Signs the challenge bytes with the holder's Ed25519 controller private key. The matching public
+    /// key (taken from this holder's DID document) is embedded in the binding so a verifier can
+    /// re-derive the DID and check the signature without any store lookup.
+    /// </param>
+    public Presentation BuildSignedPresentation(
+        DidId verifier,
+        IEnumerable<int> indices,
+        byte[] sessionNonce,
+        ulong asOfRevocationEpoch,
+        string chain,
+        Func<ReadOnlyMemory<byte>, byte[]> signChallenge)
+    {
+        ArgumentNullException.ThrowIfNull(signChallenge);
+        var createdAt = (_options.Clock ?? TimeProvider.System).GetUtcNow();
+        var challenge = BuildPresentationChallenge(verifier, indices, sessionNonce, asOfRevocationEpoch, chain, createdAt);
+        var holderSignature = signChallenge(challenge)
+            ?? throw new InvalidOperationException("Presentation signer returned null.");
+        return BuildPresentation(verifier, indices, sessionNonce, asOfRevocationEpoch, chain, holderSignature, createdAt);
+    }
+
+    /// <summary>Type-name convenience overload of <see cref="BuildSignedPresentation(DidId, IEnumerable{int}, byte[], ulong, string, Func{ReadOnlyMemory{byte}, byte[]})"/>.</summary>
+    public Presentation BuildSignedPresentation(
+        DidId verifier,
+        IEnumerable<string> attestationTypes,
+        byte[] sessionNonce,
+        ulong asOfRevocationEpoch,
+        string chain,
+        Func<ReadOnlyMemory<byte>, byte[]> signChallenge)
+        => BuildSignedPresentation(verifier, IndicesForTypes(attestationTypes), sessionNonce, asOfRevocationEpoch, chain, signChallenge);
+
+    /// <summary>
+    /// Build a presentation from a pre-computed <paramref name="holderSignature"/> over the challenge
+    /// returned by <see cref="BuildPresentationChallenge"/>. The <paramref name="createdAt"/> MUST equal
+    /// the value used to build that challenge, otherwise verification fails. Use this for out-of-band /
+    /// hardware signers; otherwise prefer <see cref="BuildSignedPresentation(DidId, IEnumerable{int}, byte[], ulong, string, Func{ReadOnlyMemory{byte}, byte[]})"/>.
     /// </summary>
     public Presentation BuildPresentation(
         DidId verifier,
@@ -172,12 +233,62 @@ public sealed class Holder
         byte[] sessionNonce,
         ulong asOfRevocationEpoch,
         string chain,
-        byte[] holderSignature)
+        byte[] holderSignature,
+        DateTimeOffset createdAt)
     {
         ArgumentNullException.ThrowIfNull(sessionNonce);
         ArgumentNullException.ThrowIfNull(chain);
         ArgumentNullException.ThrowIfNull(holderSignature);
 
+        var disclosures = ResolveDisclosures(indices);
+
+        return new Presentation
+        {
+            Holder = _document.Id,
+            Disclosures = disclosures,
+            Binding = new PresentationBinding
+            {
+                Verifier = verifier,
+                SessionNonce = sessionNonce,
+                AsOfRevocationEpoch = asOfRevocationEpoch,
+                Chain = chain,
+                HolderSignature = holderSignature,
+                HolderPublicKey = DidService.ResolveControllerKey(_document),
+                CreatedAt = createdAt,
+            },
+        };
+    }
+
+    /// <summary>Type-name convenience overload of the pre-signed <see cref="BuildPresentation(DidId, IEnumerable{int}, byte[], ulong, string, byte[], DateTimeOffset)"/>.</summary>
+    public Presentation BuildPresentation(
+        DidId verifier,
+        IEnumerable<string> attestationTypes,
+        byte[] sessionNonce,
+        ulong asOfRevocationEpoch,
+        string chain,
+        byte[] holderSignature,
+        DateTimeOffset createdAt)
+        => BuildPresentation(verifier, IndicesForTypes(attestationTypes), sessionNonce, asOfRevocationEpoch, chain, holderSignature, createdAt);
+
+    private int[] IndicesForTypes(IEnumerable<string> attestationTypes)
+    {
+        ArgumentNullException.ThrowIfNull(attestationTypes);
+        var typeSet = new HashSet<string>(attestationTypes, StringComparer.Ordinal);
+        var matchingIndices = _attestations
+            .Select((a, i) => (a, i))
+            .Where(x => typeSet.Contains(x.a.Type))
+            .Select(x => x.i)
+            .ToArray();
+
+        if (matchingIndices.Length == 0)
+            throw new InvalidOperationException(
+                $"Holder has no attestations matching the requested types: {string.Join(", ", typeSet)}.");
+        return matchingIndices;
+    }
+
+    private AttestationDisclosure[] ResolveDisclosures(IEnumerable<int> indices)
+    {
+        ArgumentNullException.ThrowIfNull(indices);
         if (_attestations.Count == 0)
             throw new InvalidOperationException("Holder has no attestations; cannot build a presentation.");
 
@@ -193,48 +304,7 @@ public sealed class Holder
 
         if (disclosures.Length == 0)
             throw new ArgumentException("At least one disclosure index is required.", nameof(indices));
-
-        return new Presentation
-        {
-            Holder = _document.Id,
-            Disclosures = disclosures,
-            Binding = new PresentationBinding
-            {
-                Verifier = verifier,
-                SessionNonce = sessionNonce,
-                AsOfRevocationEpoch = asOfRevocationEpoch,
-                Chain = chain,
-                HolderSignature = holderSignature,
-                CreatedAt = (_options.Clock ?? TimeProvider.System).GetUtcNow(),
-            },
-        };
-    }
-
-    /// <summary>
-    /// Convenience overload: discloses attestations matching the given type names
-    /// (e.g. <c>"phone_verified"</c>, <c>"human_verified"</c>).
-    /// </summary>
-    public Presentation BuildPresentation(
-        DidId verifier,
-        IEnumerable<string> attestationTypes,
-        byte[] sessionNonce,
-        ulong asOfRevocationEpoch,
-        string chain,
-        byte[] holderSignature)
-    {
-        ArgumentNullException.ThrowIfNull(attestationTypes);
-        var typeSet = new HashSet<string>(attestationTypes, StringComparer.Ordinal);
-        var matchingIndices = _attestations
-            .Select((a, i) => (a, i))
-            .Where(x => typeSet.Contains(x.a.Type))
-            .Select(x => x.i)
-            .ToArray();
-
-        if (matchingIndices.Length == 0)
-            throw new InvalidOperationException(
-                $"Holder has no attestations matching the requested types: {string.Join(", ", typeSet)}.");
-
-        return BuildPresentation(verifier, matchingIndices, sessionNonce, asOfRevocationEpoch, chain, holderSignature);
+        return disclosures;
     }
 
     // ── revocation ────────────────────────────────────────────────────────

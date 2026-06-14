@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using Microsoft.EntityFrameworkCore;
 using Tessera.Core;
 using Tessera.Did;
 using Tessera.EntityFrameworkCore;
@@ -169,6 +170,70 @@ public class EfCoreDidStoreTests
             Assert.Equal(root, loaded.AttestationRoot);
             Assert.False(loaded.Revoked);
             Assert.Equal(2, loaded.Version);
+        }
+    }
+
+    // Regression for finding H10: without an optimistic-concurrency token, two writers that
+    // both read the same snapshot could each commit a mutation, with the last writer silently
+    // clobbering the other — e.g. a BindWallet resurrecting a DID a concurrent Revoke just set.
+    // SQLite (a relational provider) is used here deliberately: EF InMemory does NOT enforce
+    // concurrency tokens, so it cannot exercise this guard.
+    [Fact]
+    public async Task Save_ConcurrentStaleWrite_ThrowsAndDoesNotResurrectRevocation()
+    {
+        using var fx = new SqliteFixture();
+        var doc = SampleDocument("did:tessera:concurrency-h10");
+
+        // Seed version 1.
+        await using (var db = fx.CreateContext())
+            await new EfCoreDidStore(db).SaveAsync(doc);
+
+        // Two callers read the SAME snapshot (version 1).
+        DidDocument snapshotA, snapshotB;
+        await using (var db = fx.CreateContext())
+            snapshotA = (await new EfCoreDidStore(db).GetAsync(doc.Id))!;
+        await using (var db = fx.CreateContext())
+            snapshotB = (await new EfCoreDidStore(db).GetAsync(doc.Id))!;
+
+        Assert.Equal(1, snapshotA.Version);
+        Assert.Equal(1, snapshotB.Version);
+
+        // Writer A revokes (the mutation DidService would produce: Revoked + bumped version).
+        var revoked = snapshotA with { Revoked = true, Version = snapshotA.Version + 1 };
+        await using (var db = fx.CreateContext())
+            await new EfCoreDidStore(db).SaveAsync(revoked);
+
+        // Writer B, working off the now-stale snapshot, binds a wallet (Revoked still false).
+        var rebound = snapshotB with
+        {
+            Wallets = new[]
+            {
+                new WalletBinding
+                {
+                    Chain = "solana",
+                    Address = "SoLanaLateWriter",
+                    ProofSignature = RandomNumberGenerator.GetBytes(64),
+                    BoundAt = DateTimeOffset.UtcNow,
+                },
+            },
+            Version = snapshotB.Version + 1,
+        };
+
+        await using (var db = fx.CreateContext())
+        {
+            var store = new EfCoreDidStore(db);
+            // The stale write must be rejected, not silently applied.
+            await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => store.SaveAsync(rebound));
+        }
+
+        // The revocation survived — it was not resurrected by the losing writer.
+        await using (var db = fx.CreateContext())
+        {
+            var loaded = await new EfCoreDidStore(db).GetAsync(doc.Id);
+            Assert.NotNull(loaded);
+            Assert.True(loaded.Revoked);
+            Assert.Equal(2, loaded.Version);
+            Assert.Empty(loaded.Wallets);
         }
     }
 

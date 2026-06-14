@@ -8,8 +8,12 @@ A console walkthrough of the full Tessera flow with anchoring on **Cardano prepr
    in Validator mode (a real Plutus V3 transaction against the `identity_anchor` validator).
 3. The holder proves `income ≥ 50,000` with a Bulletproof bound to that commitment —
    without revealing the income.
-4. A verifier checks the presentation, reads the **on-chain root + revocation epoch** back
-   from Cardano, evaluates the predicate, and prints **`credit line approved`**.
+4. The holder **signs the presentation challenge** with their DID controller key (the binding
+   carries the 32-byte `HolderPublicKey`), so the presenter is proven to control the holder DID.
+5. A verifier checks the presentation — including the holder signature — reads the **on-chain
+   root + revocation epoch** back from Cardano (revocation is **fail-closed**:
+   `RequireCurrentRevocationEpoch` demands a reachable anchor and an exact epoch match), evaluates
+   the predicate, and prints **`credit line approved`**.
 
 ## Run
 
@@ -50,5 +54,6 @@ never the income, the attestation, or any PII.
 
 To try the trust-trade-off fallback, set `AnchorMode = AnchorMode.Metadata` in the options:
 the root/epoch are written as transaction metadata instead of a script-locked UTxO (cheaper,
-but the verifier then trusts the controller key, not the chain). See
-[`chains/cardano/README.md`](../../chains/cardano/README.md).
+but the verifier then trusts the controller key, not the chain — the metadata read still
+authenticates the controller via the tx input address and an embedded signature over
+`did_hash ‖ root ‖ epoch`). See [`chains/cardano/README.md`](../../chains/cardano/README.md).

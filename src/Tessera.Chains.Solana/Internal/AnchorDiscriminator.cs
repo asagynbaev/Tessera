@@ -30,11 +30,14 @@ internal static class AnchorDiscriminator
 /// <summary>Pre-computed discriminators for the identity-registry program.</summary>
 internal static class IdentityRegistryDiscriminators
 {
+    public static readonly byte[] Initialize = AnchorDiscriminator.ForInstruction("initialize");
     public static readonly byte[] RegisterDid = AnchorDiscriminator.ForInstruction("register_did");
     public static readonly byte[] UpdateRoot = AnchorDiscriminator.ForInstruction("update_root");
     public static readonly byte[] BumpRevocation = AnchorDiscriminator.ForInstruction("bump_revocation");
     public static readonly byte[] RegisterIssuer = AnchorDiscriminator.ForInstruction("register_issuer");
+    public static readonly byte[] DeactivateIssuer = AnchorDiscriminator.ForInstruction("deactivate_issuer");
 
+    public static readonly byte[] RegistryConfigAccount = AnchorDiscriminator.ForAccount("RegistryConfig");
     public static readonly byte[] DidAnchorAccount = AnchorDiscriminator.ForAccount("DidAnchor");
     public static readonly byte[] IssuerAccount = AnchorDiscriminator.ForAccount("Issuer");
 }

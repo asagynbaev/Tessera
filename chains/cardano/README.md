@@ -36,7 +36,7 @@ the derived preprod addresses are in the
 | `register_did` | `mint · RegisterDid` | controller | Create the anchor UTxO, `epoch = 0`. |
 | `update_root` | `spend · UpdateRoot { new_root }` | controller | Replace the attestation root. |
 | `bump_revocation` | `spend · BumpRevocation { reason }` | controller | `epoch := epoch + 1`. |
-| `register_issuer` | `mint · RegisterIssuer` | issuer | Lock an immutable issuer record. |
+| `register_issuer` | `mint · RegisterIssuer` | governance admin | Lock an immutable issuer record. Onboarding is **governance-gated**: the `issuer_registry` validator is parameterized by an admin VKH that must co-sign (see below). |
 
 ## Anchor modes (C# adapter)
 
@@ -49,10 +49,17 @@ The adapter exposes two `AnchorMode`s with **different trust properties**:
   min-UTxO + collateral).
 - **`Metadata` (demo fallback).** Writes `{ did_hash, root, epoch }` as
   transaction metadata under a fixed label; reads scan that label via Blockfrost.
-  No script enforces anything — a verifier trusts the **controller key** that
-  signed the metadata transaction, not the chain. Cheaper and simpler, but it
-  does **not** give the validator's tamper-evidence. Use it for demos, not
-  production.
+  No *script* enforces anything, so a verifier trusts the **controller key**, not
+  the chain. Because the metadata label is a shared, permissionless namespace
+  (any address can publish under it), the write **authenticates the controller**:
+  each tx also carries the controller's Ed25519 public key (`pk`) and a detached
+  signature (`sig`) over the canonical message `did_hash ‖ root ‖ epoch`. On read
+  the adapter (a) requires the tx to originate from the controller's address and
+  (b) verifies that embedded signature against the configured controller key,
+  skipping any unauthenticated tx so a poisoned entry cannot suppress the
+  controller's own newer state. This is cheaper and simpler than the validator,
+  but it still does **not** give the validator's on-chain tamper-evidence. Use it
+  for demos, not production.
 
 ## Trust boundary (eUTXO)
 
@@ -67,9 +74,12 @@ then route register-vs-update. See the contract README for detail.
 1. **Strict global registration uniqueness** via a singleton registry UTxO that
    every `register_did` must spend (serialises registrations; trades concurrency
    for an on-chain guarantee).
-2. **Issuer deactivation** — the issuer record is immutable today (parity with
-   Solana, which also lacks a deactivate path). A revocable variant would add a
-   spend handler gated by an authority key.
+2. **Issuer deactivation** — issuer onboarding is now governance-gated (the
+   `issuer_registry` validator is parameterized by an admin VKH that must
+   co-sign `register_issuer`), but the issuer record is still immutable once
+   minted: there is no spend handler, so it cannot be deactivated (parity with
+   Solana, whose program *does* now have a `deactivate_issuer` path). A revocable
+   variant would add a spend handler gated by the same admin key.
 3. **Reference scripts** — publish the validators as reference scripts on preprod
    so anchoring txs don't carry the script bytes (smaller fees).
 4. **Native Midnight integration** is *planned*, not present — a zkSNARK stack
@@ -84,3 +94,13 @@ aiken build     # emit plutus.json
 ```
 
 Or from this directory: `make check`, `make build`, `make blueprint`.
+
+> **Note (issuer_registry).** Governance-gating made `issuer_registry` take an
+> `admin: VerificationKeyHash` parameter, so its policy id / script address are
+> derived only after that parameter is applied. The checked-in `plutus.json`
+> still reflects the pre-parameter scaffold; re-run `aiken build` to regenerate
+> the blueprint, then point the C# adapter at the parameter-applied script via
+> `CardanoScriptRefs.IssuerRegistryScript` and have the admin co-sign the
+> registration tx. The `identity_anchor` validator is unparameterized and
+> unaffected. On-chain validator changes only take effect once rebuilt with the
+> Aiken toolchain and the new script address is used.

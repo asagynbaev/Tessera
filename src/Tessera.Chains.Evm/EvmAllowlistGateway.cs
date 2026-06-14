@@ -111,7 +111,11 @@ public sealed class EvmAllowlistGateway : IAllowlistGateway
         }
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        await fn.SendTransactionAndWaitForReceiptAsync(_from, gas, new HexBigInteger(0), cts, args).ConfigureAwait(false);
+        var receipt = await fn.SendTransactionAndWaitForReceiptAsync(_from, gas, new HexBigInteger(0), cts, args).ConfigureAwait(false);
+
+        // A mined-but-reverted allow/revoke would otherwise return silently (Nethereum does not throw
+        // on status 0 here). Assert success so a failed list mutation never looks like it took effect.
+        EvmTx.EnsureReceiptSucceeded(receipt.Status, receipt.TransactionHash);
     }
 
     private Function GetFunctionOrThrow(string name)

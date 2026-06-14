@@ -22,6 +22,14 @@ public sealed record SumsubApplicantReview
     /// <summary>Raw review answer (<c>GREEN</c> / <c>RED</c>), for diagnostics.</summary>
     public string? ReviewAnswer { get; init; }
 
+    /// <summary>
+    /// The <c>externalUserId</c> Sumsub recorded for this applicant at creation time. Integrators
+    /// MUST set this to the subject DID so the attestation source can prove the applicant belongs
+    /// to the DID it is signing claims onto. Null/absent when the integrator never bound one, in
+    /// which case the source refuses to emit drafts.
+    /// </summary>
+    public string? ExternalUserId { get; init; }
+
     /// <summary>The Sumsub level name the applicant cleared (mapped to the kyc <c>level</c> claim).</summary>
     public string? LevelName { get; init; }
 

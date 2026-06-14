@@ -23,6 +23,40 @@ public class PepperProviderTests
     }
 
     [Fact]
+    public void StaticPepper_AllZero_Throws()
+    {
+        // M5: an all-zero buffer of the correct length must be rejected — it offers no security.
+        Assert.Throws<ArgumentException>(() => new StaticPepperProvider(new byte[32]));
+        Assert.Throws<ArgumentException>(() => new StaticPepperProvider(new byte[64]));
+    }
+
+    [Fact]
+    public void StaticPepper_LowEntropy_Throws()
+    {
+        // A repeated single byte across 32 bytes is grossly low entropy and must be rejected.
+        var lowEntropy = new byte[32];
+        Array.Fill(lowEntropy, (byte)0x42);
+        Assert.Throws<ArgumentException>(() => new StaticPepperProvider(lowEntropy));
+    }
+
+    [Fact]
+    public void EnvironmentPepper_AllZero_Throws()
+    {
+        var name = "ZKP_TEST_PEPPER_" + Guid.NewGuid().ToString("N");
+        try
+        {
+            Environment.SetEnvironmentVariable(name, Convert.ToBase64String(new byte[32]));
+            var provider = new EnvironmentPepperProvider(name);
+            Assert.Throws<InvalidOperationException>(() =>
+                provider.GetPepperAsync().AsTask().GetAwaiter().GetResult());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(name, null);
+        }
+    }
+
+    [Fact]
     public void EnvironmentPepper_MissingVariable_Throws()
     {
         var name = "ZKP_TEST_PEPPER_" + Guid.NewGuid().ToString("N");
