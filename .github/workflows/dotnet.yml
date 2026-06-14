@@ -83,6 +83,66 @@ jobs:
           npm run export-abi
           git diff --exit-code abi/
 
+  evm-smoke:
+    # Live on-chain integration: runs the EvmChainAnchor / EvmAllowlistGateway smoke tests
+    # against a local Hardhat node. These tests are [SkippableFact]-gated on the TESSERA_EVM_*
+    # env vars, so without this job they silently skip — here we give them a real chain.
+    runs-on: ubuntu-latest
+    env:
+      TESSERA_EVM_RPC: http://127.0.0.1:8545
+      TESSERA_EVM_CHAINID: '31337'
+      # Stock Hardhat account #0 — publicly known, throwaway, only valid on a local node.
+      TESSERA_EVM_KEY: '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0'
+
+      - name: Install EVM dependencies
+        working-directory: chains/evm
+        run: npm ci
+
+      - name: Compile contracts
+        working-directory: chains/evm
+        run: npx hardhat compile
+
+      # Node start + deploy + test live in ONE step: a process backgrounded in an earlier step
+      # is not guaranteed to survive into later steps (the runner tears down a step's process
+      # tree at step end), which kills the local node before the tests can reach it.
+      - name: Run EVM smoke tests (live against local node)
+        working-directory: chains/evm
+        run: |
+          npx hardhat node > hardhat-node.log 2>&1 &
+          NODE_PID=$!
+          trap "kill $NODE_PID 2>/dev/null || true" EXIT
+
+          up=
+          for i in $(seq 1 30); do
+            if curl -s -X POST http://127.0.0.1:8545 -H 'Content-Type: application/json' \
+                 --data '{"jsonrpc":"2.0","method":"eth_chainId","params":[],"id":1}' | grep -q result; then
+              up=1; echo "node up after ${i}s"; break
+            fi
+            sleep 1
+          done
+          if [ -z "$up" ]; then echo "Hardhat node failed to start:"; cat hardhat-node.log; exit 1; fi
+
+          npx hardhat run scripts/deploy-local.js --network localhost
+          export TESSERA_EVM_REGISTRY=$(node -e "process.stdout.write(require('./deployed.local.json').registry)")
+          export TESSERA_EVM_ALLOWLIST=$(node -e "process.stdout.write(require('./deployed.local.json').allowlist)")
+          echo "registry=$TESSERA_EVM_REGISTRY allowlist=$TESSERA_EVM_ALLOWLIST"
+
+          dotnet test ../../src/Tessera.Chains.Evm.Tests --configuration Release --verbosity normal
+
   cardano-contract:
     runs-on: ubuntu-latest
     defaults:
