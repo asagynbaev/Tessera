@@ -56,9 +56,9 @@ the `Sagynbaev.Tessera.Sdk` package); namespaces remain `Tessera.*`.
 | `Tessera.Sources.XRoad` | Layer-2 plugin: X-Road government registry → residency / property / encumbrance. |
 | `Tessera.Sources.Bitcoin` | Layer-2 plugin: proven control of Bitcoin addresses (BIP-137 signed challenge) → `btc_control` (address count only) + Pedersen-committed `btc_balance` / `btc_hodl_age`, each bound to a point-in-time chain snapshot (height/hash/time). Esplora (mempool.space / blockstream.info) provider. |
 
-> **Audit status:** v3.2.0 is a security-hardening release (authenticated holder
-> presentations, fail-closed revocation, address-bound wallet binding, authenticated
-> on-chain anchors — see [Security](#security)). `Tessera.Cryptography` remains a
+> **Audit status:** the current release is **3.3.0-preview.2**, built on the v3.2.0
+> security-hardening baseline (authenticated holder presentations, fail-closed revocation,
+> address-bound wallet binding, authenticated on-chain anchors — see [Security](#security)). `Tessera.Cryptography` remains a
 > from-scratch, **not constant-time** implementation pending external review; constant-time
 > `Point.ScalarMul` is deferred to that audit. Threat model and known limitations:
 > [docs/security-audit-readiness.md](docs/security-audit-readiness.md).
@@ -308,7 +308,8 @@ they upgrade.
 
 ## Security
 
-v3.2.0 is a security-hardening release. The guarantees that matter at the trust boundary:
+The current release (**3.3.0-preview.2**) builds on the v3.2.0 security-hardening baseline. The
+guarantees that matter at the trust boundary:
 
 - **Authenticated holder presentations.** A presentation carries the holder's controller
   public key (`PresentationBinding.HolderPublicKey`, 32-byte Ed25519) and a signature over a

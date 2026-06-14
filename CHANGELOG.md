@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [3.3.0-preview.2] - 2026-06-14
+
+Fixes found while exercising v3.3.0-preview.1 live (Cardano preprod with real submits; a local EVM
+node): both the Cardano anchor flow (Metadata + Validator modes) and the EVM `registerDid` path were
+broken in preview.1 and now work end-to-end.
+
 ### Fixed
 
 - **Cardano Metadata-mode transactions were always rejected (TTL = 0)** (`Tessera.Chains.Cardano`):
