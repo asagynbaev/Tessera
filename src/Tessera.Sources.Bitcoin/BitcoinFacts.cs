@@ -24,6 +24,15 @@ public sealed record BitcoinFacts
 
     /// <summary>Number of addresses whose control was proven (the boolean <c>btc_control</c> fact).</summary>
     public required int AddressCount { get; init; }
+
+    /// <summary>Chain-tip block height at the moment these facts were observed (point-in-time binding).</summary>
+    public required long SnapshotBlockHeight { get; init; }
+
+    /// <summary>Chain-tip block hash (hex) at the moment these facts were observed.</summary>
+    public required string SnapshotBlockHash { get; init; }
+
+    /// <summary>Chain-tip block time at the moment these facts were observed.</summary>
+    public required DateTimeOffset SnapshotTimeUtc { get; init; }
 }
 
 /// <summary>
@@ -41,6 +50,11 @@ internal static class BitcoinFactCalculator
         CancellationToken ct)
     {
         var now = clock.GetUtcNow();
+
+        // Capture the chain tip ONCE up front: every fact below is observed "as of" this snapshot,
+        // so the emitted attestations bind to a single point in time rather than no moment at all.
+        var tip = await provider.GetChainTipAsync(ct).ConfigureAwait(false);
+
         long totalSats = 0;
         long oldestAgeDays = 0;
         long weightedAgeDenominator = 0;                   // Σ confirmed UTXO value (same set as the numerator)
@@ -76,6 +90,9 @@ internal static class BitcoinFactCalculator
             HodlAgeDays = hodlAgeDays,
             OldestUtxoAgeDays = oldestAgeDays,
             AddressCount = verified.Count,
+            SnapshotBlockHeight = tip.BlockHeight,
+            SnapshotBlockHash = tip.BlockHash,
+            SnapshotTimeUtc = tip.BlockTimeUtc,
         };
     }
 

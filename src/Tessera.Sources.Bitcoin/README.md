@@ -84,13 +84,35 @@ continuous custody. `total_sats` is a point-in-time confirmed balance and can ch
 
 | Type | Payload | Predicate |
 |---|---|---|
-| `btc_control` | `address_count` claim **only** (no addresses) | boolean: ≥ 1 address proven |
-| `btc_balance` | Pedersen commitment to `total_sats` | `ProveBoundMinimum` (e.g. `≥ 1 BTC`) |
-| `btc_hodl_age` | Pedersen commitment to `hodl_age_days` | `ProveBoundMinimum` (e.g. `≥ 365 days`) |
+| `btc_control` | `address_count` claim + chain snapshot (no addresses) | boolean: ≥ 1 address proven |
+| `btc_balance` | Pedersen commitment to `total_sats` + chain snapshot | `ProveBoundMinimum` (e.g. `≥ 1 BTC`) |
+| `btc_hodl_age` | Pedersen commitment to `hodl_age_days` + chain snapshot | `ProveBoundMinimum` (e.g. `≥ 365 days`) |
 
 These types live in this plugin (`BitcoinAttestationTypes`), not the vendor-neutral core — matching the
 X-Road plugin precedent. Register them with `BitcoinSchemas.Register(registry)` or
 `BitcoinSchemas.CreateStandardWithBitcoin()`.
+
+### Point-in-time snapshots
+
+A balance or control attestation with no chain reference asserts a fact about *no particular moment* —
+it can't be refreshed or freshness-checked. So every Bitcoin attestation binds a **chain snapshot**: the
+best block's height, hash, and time, captured **once** at the start of fact computation
+(`IBitcoinProvider.GetChainTipAsync`) and written into each payload's claims as the generic
+`snapshot_block_height` / `snapshot_block_hash` / `snapshot_time_unix_s` keys (see
+`Tessera.Attestations.ChainSnapshot`).
+
+This is **public chain data** — height, hash, time — so it does not weaken the privacy invariant: no
+address, txid, script, or plaintext amount is added. The privacy-leak test asserts the snapshot fields
+*are* present while secrets stay absent.
+
+A verifier opts into freshness with `VerificationPolicy.SnapshotFreshness` (a
+`SnapshotFreshnessRequirement`), bounding the snapshot's age by time (`MaxAge`) and/or by blocks
+(`MaxAgeBlocks` + the verifier's `CurrentBlockHeight`); it is **off by default**. Read a snapshot back
+from any disclosed attestation with `ChainSnapshot.TryFrom(attestation.Payload)`.
+
+> **Honest scope:** the snapshot records the chain tip *at issuance time*. It lets a verifier reject a
+> stale attestation, but it is **not** historical verification — checking the balance as it stood at a
+> specific past height would require an indexer and is out of scope for this plugin.
 
 ### Privacy invariant (hard rule)
 
@@ -109,10 +131,12 @@ committed and proven in **full satoshis**.
 
 ## Provider
 
-`IBitcoinProvider` abstracts chain data; `EsploraBitcoinProvider` implements it over the Esplora REST
-API (mempool.space / blockstream.info / self-hosted). Base URL is configurable; `BitcoinNetwork`
-selects Mainnet / Testnet / Signet defaults. Reads retry on transient faults (HTTP 5xx / 429 / network);
-the provider never writes. Unit tests mock the provider; a live mempool.space testnet read is exercised
+`IBitcoinProvider` abstracts chain data — confirmed balance, UTXOs, and the current chain tip
+(`GetChainTipAsync`, for the snapshot binding above). `EsploraBitcoinProvider` implements it over the
+Esplora REST API (mempool.space / blockstream.info / self-hosted), reading the tip from
+`/blocks/tip/height` + `/blocks/tip/hash` and the tip block's time. Base URL is configurable;
+`BitcoinNetwork` selects Mainnet / Testnet / Signet defaults. Reads retry on transient faults
+(HTTP 5xx / 429 / network); the provider never writes. Unit tests mock the provider; a live mempool.space testnet read is exercised
 by an integration test gated behind `TESSERA_BITCOIN_E2E=1`.
 
 > **Audit status:** the predicate proofs rest on `Tessera.Cryptography`, a from-scratch,

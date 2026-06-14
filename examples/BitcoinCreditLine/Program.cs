@@ -257,4 +257,12 @@ sealed class SimulatedBitcoinProvider : IBitcoinProvider
         };
         return Task.FromResult((IReadOnlyList<BitcoinUtxo>)new[] { utxo });
     }
+
+    public Task<BitcoinChainTip> GetChainTipAsync(CancellationToken ct = default)
+        => Task.FromResult(new BitcoinChainTip
+        {
+            BlockHeight = 2_580_000, // a plausible testnet tip for the demo
+            BlockHash = "00000000000000000000000000000000000000000000000000000000deadbeef",
+            BlockTimeUtc = DateTimeOffset.UtcNow,
+        });
 }

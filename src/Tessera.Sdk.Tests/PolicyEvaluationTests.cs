@@ -318,4 +318,132 @@ public class PolicyEvaluationTests
             ClaimPolicy(new RequiredClaim { Type = "jurisdiction", Key = "country" }));
         Assert.True(r.Valid, r.Reason);
     }
+
+    // ── snapshot freshness (opt-in, default off) ─────────────────────────────
+
+    private static readonly DateTimeOffset SnapNow = new(2026, 6, 14, 12, 0, 0, TimeSpan.Zero);
+
+    private static AttestationDisclosure SnapshotDisclosure(string type, ChainSnapshot snapshot)
+    {
+        var claims = new Dictionary<string, object>();
+        snapshot.WriteClaims(claims);
+        return new AttestationDisclosure
+        {
+            Attestation = new Attestation
+            {
+                Schema = "s",
+                Type = type,
+                Issuer = new DidId("did:tessera:issuer"),
+                Subject = new DidId("did:tessera:subject"),
+                IssuedAt = DateTimeOffset.UnixEpoch,
+                Nonce = new byte[16],
+                Payload = new AttestationPayload { Method = "m", Claims = claims },
+                Signature = new AttestationSignature { Algorithm = "ed25519", Value = new byte[64] },
+            },
+            MerkleProof = new MerkleInclusionProof
+            {
+                LeafHash = new byte[32], Path = Array.Empty<byte[]>(), Root = new byte[32], LeafIndex = 0,
+            },
+        };
+    }
+
+    private static VerificationPolicy FreshnessPolicy(SnapshotFreshnessRequirement req) => new()
+    {
+        ExpectedVerifier = new DidId("did:tessera:v"),
+        SnapshotFreshness = req,
+    };
+
+    [Fact]
+    public void Snapshot_NoRule_Passes_EvenWhenOld()
+    {
+        var old = new ChainSnapshot { BlockHeight = 1, BlockHash = "h", TimeUtc = SnapNow.AddYears(-1) };
+        var r = PolicyEvaluation.EvaluateDeclarativeRules(
+            Present(SnapshotDisclosure("btc_balance", old)),
+            new VerificationPolicy { ExpectedVerifier = new DidId("did:tessera:v") },
+            SnapNow);
+        Assert.True(r.Valid, r.Reason);
+    }
+
+    [Fact]
+    public void Snapshot_FreshByTime_Passes()
+    {
+        var fresh = new ChainSnapshot { BlockHeight = 900_000, BlockHash = "h", TimeUtc = SnapNow.AddHours(-1) };
+        var r = PolicyEvaluation.EvaluateDeclarativeRules(
+            Present(SnapshotDisclosure("btc_balance", fresh)),
+            FreshnessPolicy(new SnapshotFreshnessRequirement { MaxAge = TimeSpan.FromHours(6) }),
+            SnapNow);
+        Assert.True(r.Valid, r.Reason);
+    }
+
+    [Fact]
+    public void Snapshot_StaleByTime_Fails()
+    {
+        var stale = new ChainSnapshot { BlockHeight = 900_000, BlockHash = "h", TimeUtc = SnapNow.AddDays(-3) };
+        var r = PolicyEvaluation.EvaluateDeclarativeRules(
+            Present(SnapshotDisclosure("btc_balance", stale)),
+            FreshnessPolicy(new SnapshotFreshnessRequirement { MaxAge = TimeSpan.FromHours(6) }),
+            SnapNow);
+        Assert.False(r.Valid);
+        Assert.Equal("snapshot_stale:btc_balance", r.Reason);
+    }
+
+    [Fact]
+    public void Snapshot_FreshByBlocks_Passes()
+    {
+        var snap = new ChainSnapshot { BlockHeight = 900_000, BlockHash = "h", TimeUtc = SnapNow };
+        var r = PolicyEvaluation.EvaluateDeclarativeRules(
+            Present(SnapshotDisclosure("btc_balance", snap)),
+            FreshnessPolicy(new SnapshotFreshnessRequirement { MaxAgeBlocks = 6, CurrentBlockHeight = 900_003 }),
+            SnapNow);
+        Assert.True(r.Valid, r.Reason);
+    }
+
+    [Fact]
+    public void Snapshot_StaleByBlocks_Fails()
+    {
+        var snap = new ChainSnapshot { BlockHeight = 900_000, BlockHash = "h", TimeUtc = SnapNow };
+        var r = PolicyEvaluation.EvaluateDeclarativeRules(
+            Present(SnapshotDisclosure("btc_balance", snap)),
+            FreshnessPolicy(new SnapshotFreshnessRequirement { MaxAgeBlocks = 6, CurrentBlockHeight = 900_100 }),
+            SnapNow);
+        Assert.False(r.Valid);
+        Assert.Equal("snapshot_stale:btc_balance", r.Reason);
+    }
+
+    [Fact]
+    public void Snapshot_BlockRule_WithoutCurrentHeight_SkipsBlockCheck()
+    {
+        var snap = new ChainSnapshot { BlockHeight = 900_000, BlockHash = "h", TimeUtc = SnapNow };
+        var r = PolicyEvaluation.EvaluateDeclarativeRules(
+            Present(SnapshotDisclosure("btc_balance", snap)),
+            FreshnessPolicy(new SnapshotFreshnessRequirement { MaxAgeBlocks = 6 }), // no CurrentBlockHeight
+            SnapNow);
+        Assert.True(r.Valid, r.Reason); // no reference height → block check is a no-op
+    }
+
+    [Fact]
+    public void Snapshot_TypeFilter_IgnoresUntargetedDisclosures()
+    {
+        var stale = new ChainSnapshot { BlockHeight = 1, BlockHash = "h", TimeUtc = SnapNow.AddDays(-30) };
+        var r = PolicyEvaluation.EvaluateDeclarativeRules(
+            Present(SnapshotDisclosure("kyc_verified", stale)),
+            FreshnessPolicy(new SnapshotFreshnessRequirement
+            {
+                Types = new[] { "btc_balance" }, // the stale disclosure is a different type
+                MaxAge = TimeSpan.FromHours(6),
+            }),
+            SnapNow);
+        Assert.True(r.Valid, r.Reason);
+    }
+
+    [Fact]
+    public void Snapshot_NoSnapshotOnDisclosure_IsSkipped()
+    {
+        // A disclosure carrying no snapshot is not failed by the freshness rule.
+        var r = PolicyEvaluation.EvaluateDeclarativeRules(
+            Present(Disclosure("btc_balance")),
+            FreshnessPolicy(new SnapshotFreshnessRequirement { MaxAge = TimeSpan.FromHours(6) }),
+            SnapNow);
+        Assert.True(r.Valid, r.Reason);
+    }
 }

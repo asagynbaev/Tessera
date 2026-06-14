@@ -78,6 +78,28 @@ public class EsploraBitcoinProviderTests
     }
 
     [Fact]
+    public async Task GetChainTip_ReadsHeightHashAndBlockTime()
+    {
+        const string tipHash = "0000000000000000000a1b2c3d4e5f60718293a4b5c6d7e8f900112233445566";
+        var handler = new StubHandler((req, _) =>
+        {
+            var path = req.RequestUri!.AbsolutePath;
+            if (path.EndsWith("/blocks/tip/height", StringComparison.Ordinal)) return Json("850321");
+            if (path.EndsWith("/blocks/tip/hash", StringComparison.Ordinal)) return Json(tipHash);
+            if (path.Contains("/block/", StringComparison.Ordinal))
+                return Json($$"""{"id":"{{tipHash}}","height":850321,"timestamp":1700000000}""");
+            return Json("not found", HttpStatusCode.NotFound);
+        });
+        var provider = Provider(handler);
+
+        var tip = await provider.GetChainTipAsync();
+
+        Assert.Equal(850321, tip.BlockHeight);
+        Assert.Equal(tipHash, tip.BlockHash);
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1700000000), tip.BlockTimeUtc);
+    }
+
+    [Fact]
     public async Task RateLimited_AfterExhaustingAttempts_ThrowsTransient()
     {
         var handler = new StubHandler((_, _) => Json("slow down", HttpStatusCode.TooManyRequests));

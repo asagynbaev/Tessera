@@ -119,9 +119,9 @@ public sealed class Verifier
         var cryptoResult = await _presVerifier.VerifyAsync(presentation, expectedRoot, ct).ConfigureAwait(false);
         if (!cryptoResult.Valid) return cryptoResult;
 
-        // 7. Declarative rules: required attestation types + predicate requirements.
-        //    Evaluated last, only on an otherwise-valid presentation.
-        return PolicyEvaluation.EvaluateDeclarativeRules(presentation, policy);
+        // 7. Declarative rules: required types + predicate requirements + snapshot freshness.
+        //    Evaluated last, only on an otherwise-valid presentation. Reuses the step-3 `now`.
+        return PolicyEvaluation.EvaluateDeclarativeRules(presentation, policy, now);
     }
 }
 
@@ -190,4 +190,11 @@ public sealed record VerificationPolicy
     /// Claims are part of the signed canonical attestation, so they cannot be tampered post-issue.
     /// </summary>
     public IReadOnlyList<RequiredClaim> RequiredClaims { get; init; } = Array.Empty<RequiredClaim>();
+
+    /// <summary>
+    /// Opt-in freshness requirement on the point-in-time <see cref="ChainSnapshot"/> carried by
+    /// disclosed attestations (e.g. a Bitcoin balance must be observed within the last N blocks or
+    /// the last N days). Null (default) = no snapshot check. Fails with <c>snapshot_stale:{type}</c>.
+    /// </summary>
+    public SnapshotFreshnessRequirement? SnapshotFreshness { get; init; }
 }
