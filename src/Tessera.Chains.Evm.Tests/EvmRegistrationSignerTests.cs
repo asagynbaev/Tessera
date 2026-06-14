@@ -54,6 +54,27 @@ public class EvmRegistrationSignerTests
     }
 
     [Fact]
+    public void StructHash_MatchesSolidityAbiEncode()
+    {
+        // Known-good value from ethers AbiCoder (matches Solidity abi.encode) for the fixed inputs.
+        const string expected = "0xd39dcaefeed412bc6a6cceeff6080544ea5619375304d4d9e8a41e20e161561d";
+        var actual = "0x" + Convert.ToHexString(EvmRegistrationSigner.StructHash(DidHash, Root, 97, Contract)).ToLowerInvariant();
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public void Signature_IsLowS_PerEip2()
+    {
+        // The contract's _recover rejects the upper half of the curve order (EIP-2) to block
+        // malleability. Nethereum's own recovery accepts both halves, so only this explicit bound
+        // catches a high-S signature — exactly the gap that let the live registerDid revert.
+        var halfN = BigInteger.Parse("7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0", System.Globalization.NumberStyles.HexNumber);
+        var sig = EvmRegistrationSigner.Sign(Key, DidHash, Root, 97, Contract);
+        var s = new BigInteger(sig[32..64], isUnsigned: true, isBigEndian: true);
+        Assert.True(s <= halfN, $"signature S must be in the low half (EIP-2); got high-S {s:X}");
+    }
+
+    [Fact]
     public void Signature_IsBoundToChainId()
     {
         var controller = EvmRegistrationSigner.DeriveController(Key);

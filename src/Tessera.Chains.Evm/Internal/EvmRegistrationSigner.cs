@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Numerics;
 using System.Text;
 using Nethereum.ABI;
@@ -15,8 +16,8 @@ namespace Tessera.Chains.Evm.Internal;
 /// The signed payload mirrors the contract exactly:
 /// <code>
 /// structHash = keccak256(abi.encode(didHash, attestationRoot, chainId, contractAddress));
-/// digest     = keccak256("\x19Ethereum Signed Message:\n32", structHash);   // EIP-191 personal sign
-/// signature  = ECDSA_sign(digest, controllerKey);                            // 65 bytes, r‖s‖v
+/// digest     = keccak256(0x19 ++ "Ethereum Signed Message:\n32" ++ structHash);   // EIP-191 personal sign
+/// signature  = ECDSA_sign(digest, controllerKey);                                  // 65 bytes, r‖s‖v
 /// </code>
 /// Binding <c>chainId</c> and <c>contractAddress</c> into the struct hash prevents replaying the
 /// signature on another chain or another registry deployment.
@@ -25,8 +26,13 @@ internal static class EvmRegistrationSigner
 {
     private static readonly ABIEncode Abi = new();
 
-    // EIP-191 personal-sign prefix for a fixed 32-byte message (the struct hash is always 32 bytes).
-    private static readonly byte[] Eip191Prefix32 = Encoding.ASCII.GetBytes("\x19Ethereum Signed Message:\n32");
+    // EIP-191 personal-sign prefix for a fixed 32-byte message (the struct hash is always 32 bytes):
+    // the 0x19 control byte followed by "Ethereum Signed Message:\n32". Built as explicit bytes so no
+    // control char or \x escape lives in a string literal — a literal "\x19Ethereum…" is a trap, since
+    // C#'s variable-length \x greedily consumes the following 'E' (\x19E -> U+019E) and corrupts the
+    // prefix, yielding a digest the contract's ecrecover does not match (-> InvalidSignature).
+    private static readonly byte[] Eip191Prefix32 =
+        new byte[] { 0x19 }.Concat(Encoding.ASCII.GetBytes("Ethereum Signed Message:\n32")).ToArray();
 
     /// <summary>The address that controls the DID, derived from the signing key.</summary>
     public static string DeriveController(string privateKey) => new EthECKey(privateKey).GetPublicAddress();
@@ -46,7 +52,7 @@ internal static class EvmRegistrationSigner
     }
 
     /// <summary>
-    /// keccak256("\x19Ethereum Signed Message:\n32" ‖ structHash) — the exact digest the contract
+    /// keccak256(0x19 ++ "Ethereum Signed Message:\n32" ++ structHash) — the exact digest the contract
     /// signs over (EIP-191 personal-sign of the 32-byte struct hash).
     /// </summary>
     public static byte[] Digest(byte[] structHash)
