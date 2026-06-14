@@ -18,7 +18,8 @@ public sealed record VerifierOptions
     public IChainAnchor? ChainAnchor { get; init; }
 
     /// <summary>
-    /// Clock used for presentation freshness checks (and attestation expiry). Defaults to
+    /// Clock used for presentation freshness checks (and attestation expiry), and for time-based
+    /// policy checks such as <see cref="VerificationPolicy.SnapshotFreshness"/>. Defaults to
     /// <see cref="TimeProvider.System"/>. Inject a fake provider in tests.
     /// </summary>
     public TimeProvider? Clock { get; init; }

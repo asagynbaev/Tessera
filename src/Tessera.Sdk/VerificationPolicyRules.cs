@@ -33,6 +33,43 @@ public sealed record PredicateRequirement
 }
 
 /// <summary>
+/// An opt-in freshness requirement on the point-in-time <see cref="ChainSnapshot"/> carried by
+/// disclosed attestations. A presentation fails when a targeted disclosure's snapshot is older than
+/// the allowed age — by wall-clock time, by block count, or both. Default-off: a policy with no
+/// <see cref="VerificationPolicy.SnapshotFreshness"/> performs no snapshot check.
+/// </summary>
+/// <remarks>
+/// The snapshot rides in the issuer-signed canonical claims, so it cannot be tampered post-issue.
+/// Disclosures that carry no snapshot are skipped — this rule freshness-checks snapshots that are
+/// present, it does not mandate their presence (use <see cref="VerificationPolicy.RequiredTypes"/>
+/// to mandate a type). The block-age check runs only when <see cref="CurrentBlockHeight"/> is set,
+/// since the verifier — not the library — knows the current chain tip.
+/// </remarks>
+public sealed record SnapshotFreshnessRequirement
+{
+    /// <summary>
+    /// Attestation types to enforce freshness on. Empty (default) = every disclosure that carries a
+    /// snapshot.
+    /// </summary>
+    public IReadOnlyList<string> Types { get; init; } = Array.Empty<string>();
+
+    /// <summary>Maximum allowed wall-clock age (now − snapshot time). Null = no time-based check.</summary>
+    public TimeSpan? MaxAge { get; init; }
+
+    /// <summary>
+    /// Maximum allowed age in blocks (<see cref="CurrentBlockHeight"/> − snapshot height). Null = no
+    /// block-based check. Requires <see cref="CurrentBlockHeight"/> to take effect.
+    /// </summary>
+    public long? MaxAgeBlocks { get; init; }
+
+    /// <summary>
+    /// The verifier's current chain-tip height, supplied at verification time for the block-age check.
+    /// Null = the block-age check is skipped (no reference height available).
+    /// </summary>
+    public long? CurrentBlockHeight { get; init; }
+}
+
+/// <summary>
 /// A declarative claim-value requirement: a disclosed attestation of <see cref="Type"/> must carry
 /// claim <see cref="Key"/>, and (when <see cref="AllowedValues"/> is set) its value must be one of
 /// them. Claims are part of the issuer-signed canonical attestation, so this gates on trusted data.
@@ -79,7 +116,11 @@ public static class PredicateProofCodec
 /// </remarks>
 internal static class PolicyEvaluation
 {
+    /// <summary>Overload using the system clock for time-based checks (e.g. snapshot freshness).</summary>
     public static VerificationResult EvaluateDeclarativeRules(Presentation presentation, VerificationPolicy policy)
+        => EvaluateDeclarativeRules(presentation, policy, DateTimeOffset.UtcNow);
+
+    public static VerificationResult EvaluateDeclarativeRules(Presentation presentation, VerificationPolicy policy, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(presentation);
         ArgumentNullException.ThrowIfNull(policy);
@@ -87,9 +128,34 @@ internal static class PolicyEvaluation
         // Evaluated in order; the first failing rule's reason is returned.
         var failure = CheckRequiredTypes(presentation, policy)
                    ?? CheckRequiredClaims(presentation, policy)
-                   ?? CheckPredicates(presentation, policy);
+                   ?? CheckPredicates(presentation, policy)
+                   ?? CheckSnapshotFreshness(presentation, policy, now);
 
         return failure is null ? VerificationResult.Ok() : VerificationResult.Fail(failure);
+    }
+
+    private static string? CheckSnapshotFreshness(Presentation presentation, VerificationPolicy policy, DateTimeOffset now)
+    {
+        var req = policy.SnapshotFreshness;
+        if (req is null) return null;
+
+        foreach (var disclosure in presentation.Disclosures)
+        {
+            var type = disclosure.Attestation.Type;
+            if (req.Types.Count > 0 && !req.Types.Contains(type, StringComparer.Ordinal))
+                continue;
+
+            var snapshot = ChainSnapshot.TryFrom(disclosure.Attestation.Payload);
+            if (snapshot is null) continue; // nothing to freshness-check on this disclosure
+
+            if (req.MaxAge is { } maxAge && now - snapshot.TimeUtc > maxAge)
+                return $"snapshot_stale:{type}";
+
+            if (req.MaxAgeBlocks is { } maxBlocks && req.CurrentBlockHeight is { } tip
+                && tip - snapshot.BlockHeight > maxBlocks)
+                return $"snapshot_stale:{type}";
+        }
+        return null;
     }
 
     private static string? CheckRequiredTypes(Presentation presentation, VerificationPolicy policy)

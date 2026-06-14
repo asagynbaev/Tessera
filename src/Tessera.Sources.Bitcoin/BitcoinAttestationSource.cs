@@ -76,7 +76,17 @@ public sealed class BitcoinAttestationSource : IAttestationSource
             {
                 Drafts = Array.Empty<AttestationDraft>(),
                 Openings = new Dictionary<string, byte[]>(),
-                Facts = new BitcoinFacts { TotalSats = 0, HodlAgeDays = 0, OldestUtxoAgeDays = 0, AddressCount = 0 },
+                // Nothing is attested when no address is verified, so no chain snapshot is taken.
+                Facts = new BitcoinFacts
+                {
+                    TotalSats = 0,
+                    HodlAgeDays = 0,
+                    OldestUtxoAgeDays = 0,
+                    AddressCount = 0,
+                    SnapshotBlockHeight = 0,
+                    SnapshotBlockHash = "",
+                    SnapshotTimeUtc = default,
+                },
             };
         }
 
@@ -85,32 +95,44 @@ public sealed class BitcoinAttestationSource : IAttestationSource
         var drafts = new List<AttestationDraft>();
         var openings = new Dictionary<string, byte[]>(StringComparer.Ordinal);
 
-        // btc_control — boolean fact (≥1 address proven). Payload carries the COUNT only.
+        // The point-in-time snapshot every draft below binds to. Public chain data (height/hash/time);
+        // it carries no address, txid, or amount, so it does not breach the privacy invariant.
+        var snapshot = new ChainSnapshot
+        {
+            BlockHeight = facts.SnapshotBlockHeight,
+            BlockHash = facts.SnapshotBlockHash,
+            TimeUtc = facts.SnapshotTimeUtc,
+        };
+
+        // btc_control — boolean fact (≥1 address proven). Payload carries the COUNT plus the snapshot.
+        var controlClaims = new Dictionary<string, object>
+        {
+            [BitcoinAttestationTypes.AddressCountClaim] = facts.AddressCount,
+        };
+        snapshot.WriteClaims(controlClaims);
         drafts.Add(new AttestationDraft(
             BitcoinAttestationTypes.Control,
-            new AttestationPayload
-            {
-                Method = "btc_signmessage",
-                Claims = new Dictionary<string, object>
-                {
-                    [BitcoinAttestationTypes.AddressCountClaim] = facts.AddressCount,
-                },
-            },
+            new AttestationPayload { Method = "btc_signmessage", Claims = controlClaims },
             _options.ControlValidity));
 
         // btc_balance — Pedersen commitment to total confirmed sats; opening goes to the holder.
+        // The snapshot rides in the claims alongside the commitment (no plaintext amount).
         var (balanceCommitment, balanceOpening) = _credentialProof.CommitValue(facts.TotalSats);
+        var balanceClaims = new Dictionary<string, object>();
+        snapshot.WriteClaims(balanceClaims);
         drafts.Add(new AttestationDraft(
             BitcoinAttestationTypes.Balance,
-            new AttestationPayload { Method = "btc_confirmed_sats", Commitment = balanceCommitment },
+            new AttestationPayload { Method = "btc_confirmed_sats", Commitment = balanceCommitment, Claims = balanceClaims },
             _options.BalanceValidity));
         openings[BitcoinAttestationTypes.Balance] = balanceOpening;
 
         // btc_hodl_age — Pedersen commitment to value-weighted holding age (days).
         var (ageCommitment, ageOpening) = _credentialProof.CommitValue(facts.HodlAgeDays);
+        var ageClaims = new Dictionary<string, object>();
+        snapshot.WriteClaims(ageClaims);
         drafts.Add(new AttestationDraft(
             BitcoinAttestationTypes.HodlAge,
-            new AttestationPayload { Method = "btc_value_weighted_hodl_age_days", Commitment = ageCommitment },
+            new AttestationPayload { Method = "btc_value_weighted_hodl_age_days", Commitment = ageCommitment, Claims = ageClaims },
             _options.HodlAgeValidity));
         openings[BitcoinAttestationTypes.HodlAge] = ageOpening;
 

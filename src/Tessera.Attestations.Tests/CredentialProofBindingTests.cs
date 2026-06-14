@@ -156,4 +156,63 @@ public class CredentialProofBindingTests
 
         Assert.True(cp.VerifyBound(commitment, bundle));
     }
+
+    // ── Homomorphic predicates over combined commitments ─────────────────────
+    //
+    // Pedersen commitments are additively homomorphic, so a bound proof over a SUM or DIFFERENCE of
+    // commitments works with the existing range-proof math. Phrased purely as math (commitmentA/B/C).
+
+    [Fact]
+    public void CombinedCommitments_SumOfThree_AboveThreshold_VerifiesBound()
+    {
+        var cp = new CredentialProof();
+        const long valueA = 40, valueB = 35, valueC = 50; // sum = 125
+        const long publicThreshold = 100;
+
+        var (commitmentA, openingA) = cp.CommitValue(valueA);
+        var (commitmentB, openingB) = cp.CommitValue(valueB);
+        var (commitmentC, openingC) = cp.CommitValue(valueC);
+
+        // Verifier side: C = commitmentA + commitmentB + commitmentC.
+        var combinedCommitment = CredentialProof.CombineCommitments(
+            CredentialProof.CombineCommitments(commitmentA, commitmentB), commitmentC);
+
+        // Prover side: combined opening + combined value, proven ≥ threshold.
+        var combinedOpening = CredentialProof.CombineOpenings(
+            CredentialProof.CombineOpenings(openingA, openingB), openingC);
+        var bundle = cp.ProveBoundMinimum(valueA + valueB + valueC, publicThreshold, combinedOpening, "sum");
+
+        Assert.True(cp.VerifyBound(combinedCommitment, bundle));
+    }
+
+    [Fact]
+    public void CombinedCommitments_Difference_NonNegative_VerifiesBound()
+    {
+        var cp = new CredentialProof();
+        const long valueA = 120, valueB = 80; // A − B = 40 ≥ 0
+
+        var (commitmentA, openingA) = cp.CommitValue(valueA);
+        var (commitmentB, openingB) = cp.CommitValue(valueB);
+
+        var diffCommitment = CredentialProof.CombineCommitments(commitmentA, commitmentB, subtract: true);
+        var diffOpening = CredentialProof.CombineOpenings(openingA, openingB, subtract: true);
+        var bundle = cp.ProveBoundMinimum(valueA - valueB, 0, diffOpening, "diff");
+
+        Assert.True(cp.VerifyBound(diffCommitment, bundle));
+    }
+
+    [Fact]
+    public void CombinedCommitments_Difference_Negative_ProverCannotProve()
+    {
+        var cp = new CredentialProof();
+        const long valueA = 60, valueB = 100; // A − B = −40 < 0
+
+        var (_, openingA) = cp.CommitValue(valueA);
+        var (_, openingB) = cp.CommitValue(valueB);
+        var diffOpening = CredentialProof.CombineOpenings(openingA, openingB, subtract: true);
+
+        // A prover with valueA < valueB cannot produce a passing bundle: the shifted value is negative,
+        // so ProveBoundMinimum refuses to build a proof at all.
+        Assert.Throws<ArgumentException>(() => cp.ProveBoundMinimum(valueA - valueB, 0, diffOpening, "diff"));
+    }
 }

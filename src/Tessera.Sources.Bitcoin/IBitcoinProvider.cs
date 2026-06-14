@@ -18,6 +18,26 @@ public interface IBitcoinProvider
     /// confirmed in (height + time). Unconfirmed UTXOs are excluded. Empty for an unused address.
     /// </summary>
     Task<IReadOnlyList<BitcoinUtxo>> GetUtxosAsync(string address, CancellationToken ct = default);
+
+    /// <summary>
+    /// The current chain tip: best-block height, hash, and time. Captured once per fact computation
+    /// so every emitted attestation records the point in time the balance/control was observed at.
+    /// Public chain data — carries no subject-identifying information.
+    /// </summary>
+    Task<BitcoinChainTip> GetChainTipAsync(CancellationToken ct = default);
+}
+
+/// <summary>The chain tip (best block) at a point in time: height, hash, and block time.</summary>
+public sealed record BitcoinChainTip
+{
+    /// <summary>Height of the best block.</summary>
+    public required long BlockHeight { get; init; }
+
+    /// <summary>Hash of the best block (hex).</summary>
+    public required string BlockHash { get; init; }
+
+    /// <summary>Time of the best block (from its header timestamp).</summary>
+    public required DateTimeOffset BlockTimeUtc { get; init; }
 }
 
 /// <summary>Confirmed balance summary for a single address, in satoshis.</summary>

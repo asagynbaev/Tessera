@@ -85,6 +85,30 @@ public sealed class EsploraBitcoinProvider : IBitcoinProvider, IDisposable
         }, ct);
     }
 
+    /// <inheritdoc/>
+    public Task<BitcoinChainTip> GetChainTipAsync(CancellationToken ct = default)
+    {
+        return BitcoinRetry.RunAsync(_retry, async () =>
+        {
+            // Esplora exposes the tip as plain-text height + hash; the tip block's header carries its time.
+            var heightText = await GetTextAsync("blocks/tip/height", ct).ConfigureAwait(false);
+            if (!long.TryParse(heightText.Trim(), out var height))
+                throw new InvalidOperationException($"Esplora returned a non-numeric tip height: '{heightText}'.");
+
+            var hash = (await GetTextAsync("blocks/tip/hash", ct).ConfigureAwait(false)).Trim();
+
+            using var block = await GetJsonAsync($"block/{Uri.EscapeDataString(hash)}", ct).ConfigureAwait(false);
+            var timestamp = block!.RootElement.GetProperty("timestamp").GetInt64();
+
+            return new BitcoinChainTip
+            {
+                BlockHeight = height,
+                BlockHash = hash,
+                BlockTimeUtc = DateTimeOffset.FromUnixTimeSeconds(timestamp),
+            };
+        }, ct);
+    }
+
     // ── HTTP helpers (mirror BlockfrostCardanoProvider) ──────────────────────────
 
     private async Task<JsonDocument?> GetJsonAsync(string path, CancellationToken ct, bool allowNotFound = false)
@@ -94,6 +118,15 @@ public sealed class EsploraBitcoinProvider : IBitcoinProvider, IDisposable
         var body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         if (!resp.IsSuccessStatusCode) throw ToException(resp.StatusCode, path, body);
         return JsonDocument.Parse(body);
+    }
+
+    /// <summary>GET a plain-text body (e.g. the tip height/hash endpoints, which are not JSON).</summary>
+    private async Task<string> GetTextAsync(string path, CancellationToken ct)
+    {
+        using var resp = await _http.GetAsync(path, ct).ConfigureAwait(false);
+        var body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        if (!resp.IsSuccessStatusCode) throw ToException(resp.StatusCode, path, body);
+        return body;
     }
 
     /// <summary>Maps an Esplora error to the source taxonomy. 5xx/429 are transient (retryable).</summary>

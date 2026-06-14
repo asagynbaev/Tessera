@@ -23,6 +23,12 @@ public class BitcoinAttestationSourceTests
     private const long V3 = 9_876_543_210_987;  // AddrB utxo3, 50 days old
     private const long ExpectedTotal = V1 + V2 + V3; // 11_111_111_101_110
 
+    // Chain-tip snapshot the fake provider reports. Distinct from every UTXO/amount/block-time above,
+    // and (for height/time) far from any scanned secret so the privacy assertions stay unambiguous.
+    private const long TipHeight = 850_321;
+    private const string TipHash = "0000000000000000000a1b2c3d4e5f60718293a4b5c6d7e8f900112233445566";
+    private const long TipTimeUnix = NowUnix; // tip ≈ now
+
     private sealed class FakeBitcoinProvider : IBitcoinProvider
     {
         private readonly Dictionary<string, (long Balance, BitcoinUtxo[] Utxos)> _data;
@@ -33,6 +39,14 @@ public class BitcoinAttestationSourceTests
 
         public Task<IReadOnlyList<BitcoinUtxo>> GetUtxosAsync(string address, CancellationToken ct = default)
             => Task.FromResult((IReadOnlyList<BitcoinUtxo>)_data[address].Utxos);
+
+        public Task<BitcoinChainTip> GetChainTipAsync(CancellationToken ct = default)
+            => Task.FromResult(new BitcoinChainTip
+            {
+                BlockHeight = TipHeight,
+                BlockHash = TipHash,
+                BlockTimeUtc = DateTimeOffset.FromUnixTimeSeconds(TipTimeUnix),
+            });
     }
 
     private static BitcoinUtxo Utxo(string txid, long value, int ageDays) => new()
@@ -72,6 +86,11 @@ public class BitcoinAttestationSourceTests
         Assert.Equal(2, result.Facts.AddressCount);
         // Σ(value·age)/total = 596_172_839_450_580 / 11_111_111_101_110 = 53 (floor).
         Assert.Equal(53, result.Facts.HodlAgeDays);
+
+        // The chain tip captured once up front is carried on the facts.
+        Assert.Equal(TipHeight, result.Facts.SnapshotBlockHeight);
+        Assert.Equal(TipHash, result.Facts.SnapshotBlockHash);
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(TipTimeUnix), result.Facts.SnapshotTimeUtc);
     }
 
     [Fact]
@@ -86,15 +105,29 @@ public class BitcoinAttestationSourceTests
         Assert.Null(control.Payload.Commitment);
         Assert.NotNull(control.Payload.Claims);
         Assert.Equal(2, control.Payload.Claims![BitcoinAttestationTypes.AddressCountClaim]);
-        Assert.Single(control.Payload.Claims); // ONLY the count
+        // The count PLUS the three snapshot fields — and nothing else.
+        Assert.Equal(4, control.Payload.Claims.Count);
 
         var balance = result.Drafts.Single(d => d.Type == BitcoinAttestationTypes.Balance);
         Assert.NotNull(balance.Payload.Commitment);
-        Assert.Null(balance.Payload.Claims);
+        // Committed draft carries the snapshot only — no plaintext amount.
+        Assert.NotNull(balance.Payload.Claims);
+        Assert.Equal(3, balance.Payload.Claims!.Count);
 
         var age = result.Drafts.Single(d => d.Type == BitcoinAttestationTypes.HodlAge);
         Assert.NotNull(age.Payload.Commitment);
-        Assert.Null(age.Payload.Claims);
+        Assert.NotNull(age.Payload.Claims);
+        Assert.Equal(3, age.Payload.Claims!.Count);
+
+        // Every draft binds to the same point-in-time chain snapshot.
+        foreach (var draft in result.Drafts)
+        {
+            var snapshot = ChainSnapshot.TryFrom(draft.Payload);
+            Assert.NotNull(snapshot);
+            Assert.Equal(TipHeight, snapshot!.BlockHeight);
+            Assert.Equal(TipHash, snapshot.BlockHash);
+            Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(TipTimeUnix), snapshot.TimeUtc);
+        }
 
         Assert.True(result.Openings.ContainsKey(BitcoinAttestationTypes.Balance));
         Assert.True(result.Openings.ContainsKey(BitcoinAttestationTypes.HodlAge));
@@ -226,5 +259,19 @@ public class BitcoinAttestationSourceTests
             Assert.DoesNotContain(secret, fullText, StringComparison.Ordinal);
         foreach (var secret in longSecrets.Concat(smallSecrets))
             Assert.DoesNotContain(secret, humanText, StringComparison.Ordinal);
+
+        // ── The snapshot IS present (public chain data, not a leak) ───────────────
+        // Every draft must carry the chain snapshot, and the snapshot fields must appear on the wire.
+        foreach (var draft in result.Drafts)
+        {
+            var snapshot = ChainSnapshot.TryFrom(draft.Payload);
+            Assert.NotNull(snapshot);
+            Assert.Equal(TipHeight, snapshot!.BlockHeight);
+            Assert.Equal(TipHash, snapshot.BlockHash);
+            Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(TipTimeUnix), snapshot.TimeUtc);
+        }
+        Assert.Contains(TipHash, humanText, StringComparison.Ordinal);
+        Assert.Contains(TipHeight.ToString(), humanText, StringComparison.Ordinal);
+        Assert.Contains(TipTimeUnix.ToString(), humanText, StringComparison.Ordinal);
     }
 }
