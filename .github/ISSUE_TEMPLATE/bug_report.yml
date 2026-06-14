@@ -1,0 +1,77 @@
+name: 🐞 Bug report
+description: Report a reproducible problem in Tessera.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. Please do **not** report security
+        vulnerabilities here — see [SECURITY.md](../blob/main/SECURITY.md) for private reporting.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug and what you expected instead.
+      placeholder: When I call ..., I get ..., but I expected ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: A minimal code snippet or sequence of steps that triggers the issue.
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    id: package-version
+    attributes:
+      label: Package & version
+      description: Which package(s) and version(s)? e.g. Sagynbaev.Tessera.Cryptography 3.3.0
+      placeholder: Sagynbaev.Tessera 3.3.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - Cryptography (secp256k1 / Pedersen / Bulletproofs)
+        - Attestations / DID / presentations
+        - Chain anchor — EVM
+        - Chain anchor — Cardano
+        - Chain anchor — Solana
+        - Chain anchor — Stellar
+        - SDK / other
+        - Docs
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: .NET SDK version, OS, and anything else relevant.
+      placeholder: |
+        - .NET SDK: 8.0.x
+        - OS: Windows 11 / Ubuntu 24.04 / macOS 15
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / stack trace
+      description: Any relevant exception, stack trace, or output. This will be rendered as code.
+      render: shell
+    validations:
+      required: false
