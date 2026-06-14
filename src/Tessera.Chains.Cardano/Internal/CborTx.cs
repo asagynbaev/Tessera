@@ -168,10 +168,14 @@ internal static class CborTx
 
         if (o.InlineDatumCbor is not null)
         {
-            w.WriteInt32(2); // datum_option = [1, data]
+            // datum_option = [1, data] where data = #6.24(bytes .cbor plutus_data): the inline datum
+            // is the plutus_data CBOR wrapped in a tag-24 byte string, NOT the raw data item. Emitting
+            // the raw data makes the Conway output undecodable (the node rejects the tx pre-phase-1).
+            w.WriteInt32(2);
             w.WriteStartArray(2);
             w.WriteInt32(1);
-            w.WriteEncodedValue(o.InlineDatumCbor);
+            w.WriteTag(CborTag.EncodedCborDataItem); // 24
+            w.WriteByteString(o.InlineDatumCbor);
             w.WriteEndArray();
         }
 

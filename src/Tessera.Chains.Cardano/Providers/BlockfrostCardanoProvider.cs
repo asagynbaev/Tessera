@@ -181,14 +181,17 @@ internal sealed class BlockfrostCardanoProvider : ICardanoProvider, IDisposable
         content.Headers.ContentType = new MediaTypeHeaderValue(CborMediaType);
         using var resp = await _http.PostAsync(path, content, ct).ConfigureAwait(false);
         var body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-        if (!resp.IsSuccessStatusCode) throw ToException(resp.StatusCode, path, body);
+        // Submit errors carry the full ledger failure (often >300 chars; the real Conway error trails a
+        // legacy-decoder preamble). Do NOT truncate them, or the actual cause is lost.
+        if (!resp.IsSuccessStatusCode) throw ToException(resp.StatusCode, path, body, fullBody: true);
         return JsonDocument.Parse(body);
     }
 
     /// <summary>Maps a Blockfrost error to the adapter taxonomy. 5xx/429 are transient (retryable).</summary>
-    private static Exception ToException(HttpStatusCode status, string path, string body)
+    /// <param name="fullBody">When true the whole response body is kept (submit/ledger errors); reads cap it.</param>
+    private static Exception ToException(HttpStatusCode status, string path, string body, bool fullBody = false)
     {
-        var snippet = body.Length > 300 ? body[..300] : body;
+        var snippet = fullBody || body.Length <= 300 ? body : body[..300];
         var message = $"Blockfrost {(int)status} on '{path}': {snippet}";
         return status == HttpStatusCode.TooManyRequests || (int)status >= 500
             ? new TransientProviderException(message)

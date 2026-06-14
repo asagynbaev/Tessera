@@ -4,6 +4,21 @@
 
 ### Fixed
 
+- **Cardano Metadata-mode transactions were always rejected (TTL = 0)** (`Tessera.Chains.Cardano`):
+  `MetadataTxBuilder` computed `ttl = tip.Slot + 7200` but the inner builder hardcoded `ttl: 0`, so
+  every submitted tx carried `invalidHereafter = 0` and the node rejected it with
+  `OutsideValidityIntervalUTxO`. The computed TTL is now threaded through; a regression test decodes the
+  submitted body and asserts the TTL tracks the chain tip.
+- **Cardano Validator-mode transactions were undecodable (inline datum)** (`Tessera.Chains.Cardano`):
+  an output's inline datum was serialized as `[1, <raw plutus_data>]`, but the Conway CDDL requires
+  `datum_option = [1, #6.24(bytes .cbor plutus_data)]` — the plutus_data wrapped in a tag-24 byte
+  string. The raw form made the `post_alonzo_transaction_output` undecodable, so the node rejected the
+  validator tx before phase-1. Now tag-24-wrapped (regression test added). The script-data hash,
+  language views, Conway map-form redeemers, multiasset value, and collateral fields were verified
+  correct against the authoritative `conway.cddl`.
+- **Cardano submit errors were truncated, hiding the real ledger failure** (`BlockfrostCardanoProvider`):
+  a ledger error longer than 300 chars (the real Conway error trails a legacy-decoder preamble) was cut
+  off, surfacing only the misleading preamble. Submit (`tx/submit`) errors are no longer truncated.
 - **EVM `registerDid` controller signature was always rejected** (`Tessera.Chains.Evm`): the
   registration signer built its EIP-191 prefix from the literal `"\x19Ethereum…"`, but C#'s `\x`
   escape is variable-length — `\x19E` parses as the single char `U+019E` (E is a hex digit) and
@@ -23,11 +38,10 @@
   silently skipping. `chains/evm/scripts/deploy-local.js` + `chains/evm/.env.local.example` make the
   same run reproducible locally (it caught the `registerDid` regression above).
 
-## [3.2.0] - 2026-06-13
+## [3.3.0-preview.1] - 2026-06-14
 
-Chain-agnostic core extended for permissioned-token / compliance use cases, organized as three
-layers (generic core → replaceable plugins → reference example) with dependencies pointing only
-inward. No vendor, network, token, or business-schema names in the core.
+First preview of the v3.3 primitives (tag `v3.3.0-preview.1`): point-in-time snapshot binding and
+homomorphic predicate helpers — additive and backward-compatible on top of 3.2.0.
 
 ### Added
 
@@ -49,6 +63,15 @@ inward. No vendor, network, token, or business-schema names in the core.
   a sum or difference of commitments (`C₁ ± C₂ ± … ≥ threshold`) is provable with the existing
   range-proof math — no proof-math change. The prover combines openings + value and calls
   `ProveBoundMinimum`; the verifier combines commitments and calls `VerifyBound`.
+
+## [3.2.0] - 2026-06-13
+
+Chain-agnostic core extended for permissioned-token / compliance use cases, organized as three
+layers (generic core → replaceable plugins → reference example) with dependencies pointing only
+inward. No vendor, network, token, or business-schema names in the core.
+
+### Added
+
 - **Bitcoin attestation source** (`Tessera.Sources.Bitcoin`): turns proven control of Bitcoin
   addresses into attestations — the basis for "private proof-of-Bitcoin". A holder proves control by
   signing a domain-separated, anti-replay challenge (`BitcoinChallenge` + `INonceStore`); BIP-137

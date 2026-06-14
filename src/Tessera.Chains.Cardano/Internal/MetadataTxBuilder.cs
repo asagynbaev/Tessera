@@ -58,12 +58,12 @@ internal sealed class MetadataTxBuilder
         var inputsTotal = (ulong)funding.Sum(u => (decimal)u.Lovelace);
 
         // Two-pass fee: build once to measure size, then finalise.
-        var draft = Build(inputs, inputsTotal, fee: 200_000, auxHash, aux, signed: true);
+        var draft = Build(inputs, inputsTotal, fee: 200_000, ttl, auxHash, aux, signed: true);
         var fee = pp.MinFeeA * (ulong)draft.Cbor.Length + pp.MinFeeB + FeeBuffer;
-        return Build(inputs, inputsTotal, fee, auxHash, aux, signed: true);
+        return Build(inputs, inputsTotal, fee, ttl, auxHash, aux, signed: true);
     }
 
-    private BuiltTx Build(IReadOnlyList<InputRef> inputs, ulong inputsTotal, ulong fee, byte[] auxHash, byte[] aux, bool signed)
+    private BuiltTx Build(IReadOnlyList<InputRef> inputs, ulong inputsTotal, ulong fee, ulong ttl, byte[] auxHash, byte[] aux, bool signed)
     {
         var change = checked(inputsTotal - fee);
         var changeOutput = new OutputSpec(_changeAddressBytes, change, Array.Empty<AssetAmount>(), null);
@@ -71,7 +71,7 @@ internal sealed class MetadataTxBuilder
             inputs: inputs,
             outputs: new[] { changeOutput },
             fee: fee,
-            ttl: 0,
+            ttl: ttl,
             networkId: CardanoNetworkInfo.NetworkId(_network),
             auxiliaryDataHash: auxHash);
 
