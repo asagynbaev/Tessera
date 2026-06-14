@@ -86,7 +86,15 @@ proof verification on-chain. Auditors should confirm no code path writes anythin
   `IdentityRegistry.registerDid(bytes32 didHash, bytes32 attestationRoot, address controller, bytes signature)`
   requires a controller ECDSA signature over `keccak256(abi.encode(didHash, root, block.chainid,
   address(this)))` (EIP-191), recovered on-chain with low-S enforced; the C# `EvmChainAnchor` signs
-  it (`EvmRegistrationSigner`) and checks `receipt.Status` on every write. The Solana program gates
+  it (`EvmRegistrationSigner`) and checks `receipt.Status` on every write. The full EVM path —
+  deploy `IdentityRegistry`, sign + submit `registerDid`/`updateRoot`/`bumpRevocation`, read back —
+  is now exercised end-to-end against a live (local Hardhat) chain by the `evm-smoke` CI job. That
+  live run caught and fixed a real bug: `EvmRegistrationSigner` built its EIP-191 prefix from the
+  literal `"\x19Ethereum…"`, but C#'s variable-length `\x` escape consumed the following `E`
+  (`\x19E` → `U+019E`), corrupting the digest so every live `registerDid` reverted
+  `InvalidSignature`. Nethereum recovered the bad signature self-consistently (the signer unit test
+  passed), so only the on-chain `ecrecover` — i.e. the live test — exposed it. Regression tests now
+  pin the registration struct hash to Solidity `abi.encode` and assert EIP-2 low-S. The Solana program gates
   `register_issuer` / `deactivate_issuer` behind a `RegistryConfig` PDA + `initialize(admin)`
   (`has_one = admin`); the adapter fails closed on RPC errors and verifies the account owner program
   + Anchor discriminator. Cardano Metadata-mode reads authenticate the controller (tx input address
@@ -105,14 +113,19 @@ proof verification on-chain. Auditors should confirm no code path writes anythin
    to SPA/timing), and the claim-canonicalization wire format is length-prefixed but not yet
    type-tagged. Claim canonicalization is now culture-invariant. The predicate binding and two-sided
    range proofs in §"Addressed" rely on the `Point`/`Scalar` arithmetic being correct.
-2. **On-chain contract hardening is source-level; live networks need a build + redeploy.** The
-   admin/governance gates and authentication described in §"Addressed" land in the contract sources
-   but only take effect once each toolchain compiles and the artifact is redeployed: the Solana
-   `RegistryConfig` + `initialize`/`deactivate_issuer` program needs `anchor build`; the Aiken
-   `issuer_registry` admin-VKH gate needs `aiken build` + a regenerated `plutus.json`; the EVM
-   `registerDid` controller-signature change needs `hardhat`/`forge` compile + deploy. These
-   toolchains are not in the build environment, so a previously-deployed registry will not enforce
-   the new gates until upgraded. The C# adapters already speak the hardened ABIs/instruction layouts.
+2. **Solana/Cardano contract hardening is source-level; those live networks need a build + redeploy.**
+   The admin/governance gates and authentication described in §"Addressed" land in the contract
+   sources but only take effect once each toolchain compiles and the artifact is redeployed: the
+   Solana `RegistryConfig` + `initialize`/`deactivate_issuer` program needs `anchor build`; the Aiken
+   `issuer_registry` admin-VKH gate needs `aiken build` + a regenerated `plutus.json`. These toolchains
+   are not in the build environment, so a previously-deployed registry will not enforce the new gates
+   until upgraded; the C# adapters already speak those hardened instruction layouts.
+   **EVM is no longer in this gap:** the `evm-smoke` CI job runs `hardhat compile`, deploys the
+   contracts, and exercises the `EvmChainAnchor` against a live (local) chain on every push — the
+   `registerDid` controller signature is verified end-to-end on-chain (which is exactly how the EIP-191
+   signer bug in §"Addressed" was caught and is now regression-guarded). The only residual EVM gap is
+   that a *public* registry deployed before the v3.2.0 ABI change must be redeployed to enforce the
+   controller-signature gate; adapter↔contract correctness itself is now proven live, not assumed.
 3. **Stellar Soroban workspace requires a newer Rust than the build environment.** The redesigned
    Ed25519 `attestation-verifier` (admin `initialize`/`set_issuer`, no HMAC argument) targets
    `soroban-sdk` 26.1 / `wasm32v1-none`, which needs rustc ≥ 1.84; the contract is source-complete
@@ -138,6 +151,12 @@ Auditors can reproduce these:
 - `Tessera.Chains.Evm.Tests/AbiContractParityTests` — every C# function selector is asserted
   equal to `keccak256(canonicalSignature)[:4]` **and** to the compiled contract ABI
   (`chains/evm/abi/*.json`), so the adapter cannot silently drift from the contract.
+  `EvmRegistrationSignerTests` pins the `registerDid` struct hash to Solidity `abi.encode` (a
+  known-good ethers vector) and asserts EIP-2 low-S — the gap that let the EIP-191 signer bug ship.
+- `evm-smoke` CI job — spins up a local Hardhat node, deploys `IdentityRegistry` + `Allowlist`, and
+  runs the `EvmChainAnchor` / `EvmAllowlistGateway` smoke tests against it, so the live anchor path
+  (sign → submit → read-back, plus allowlist add/revoke) is exercised on every push rather than
+  silently skipping. Reproducible locally via `chains/evm/scripts/deploy-local.js`.
 - `Tessera.Chains.Cardano.Tests` — script-address / policy-id derivation asserted equal to the Aiken
   blueprint (`aiken blueprint policy/address`); datum/redeemer + Conway/V3 CBOR (language views,
   map-form redeemers, script-data hash) golden vectors and round-trips; retry classification.
@@ -160,10 +179,11 @@ Auditors can reproduce these:
 - Engage an external cryptography auditor for `Tessera.Cryptography`; in scope for that audit:
   constant-time `Point.ScalarMul` (SPA/timing hardening) and a type-tagged claim-canonicalization
   wire format (limitation 1).
-- Build + redeploy the hardened on-chain contracts so the new gates take effect on live networks:
-  `anchor build` (Solana `RegistryConfig` / `deactivate_issuer`), `aiken build` + regenerated
-  `plutus.json` (Aiken `issuer_registry` admin gate), EVM compile + deploy (`registerDid` controller
-  signature) (limitation 2).
+- Build + redeploy the hardened Solana/Cardano contracts so the new gates take effect on live
+  networks: `anchor build` (Solana `RegistryConfig` / `deactivate_issuer`), `aiken build` +
+  regenerated `plutus.json` (Aiken `issuer_registry` admin gate) (limitation 2). EVM is compiled,
+  deployed, and live-tested in CI (`evm-smoke`); only a public registry predating the v3.2.0 ABI
+  change needs redeploy.
 - Compile + redeploy the Stellar Soroban `attestation-verifier` on a toolchain with rustc ≥ 1.84
   (limitation 3).
 - Run the live Cardano preprod `register → update → bump` and finalize the Validator-mode tx
