@@ -1,0 +1,12 @@
+# Anchor / Rust build output (declare_id! is patched into a built .so; the committed
+# source keeps the placeholder id — see scripts/deploy-devnet.sh).
+target/
+.anchor/
+test-ledger/
+
+# Node (scripts/initialize.js depends only on @solana/web3.js)
+node_modules/
+package-lock.json
+
+# Transient sed backups from deploy-devnet.sh (the script removes these; ignored as a guard)
+*.bak
