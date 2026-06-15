@@ -51,17 +51,40 @@ anchor build
 
 Anchor 0.30.x is required.
 
-## Deploy
+## Deploy (devnet)
+
+One command takes a clean checkout to a deployed devnet program:
 
 ```bash
-anchor deploy --provider.cluster devnet
+./scripts/deploy-devnet.sh      # build → sync declare_id! → rebuild → anchor deploy
 ```
 
-The program ID ships as a placeholder (`declare_id!("11111111111111111111111111111114")`);
-generate a real keypair and run `anchor keys sync` before deploying. After deploy, call
-`initialize(admin)` once to create the `RegistryConfig` PDA and set the admin that gates
-issuer registration. See [`docs/deploying-solana.md`](../../docs/deploying-solana.md) for the
-full end-to-end flow.
+[`scripts/deploy-devnet.sh`](scripts/deploy-devnet.sh) builds, reads the program id from
+the generated keypair (`anchor keys list`), patches `declare_id!` + `Anchor.toml` to it,
+rebuilds, deploys, and prints the program id + an explorer link. It is idempotent and fails
+loudly if the toolchain is missing. The committed `declare_id!("11111111111111111111111111111114")`
+is an intentional placeholder — the script patches it locally at deploy time; only the Rust
+side carries a hardcoded id (the C# client reads it from `TESSERA_SOLANA_PROGRAM_ID`).
+
+The program ships as an upgradeable program; re-running the script upgrades the same id in
+place. Record the deployed id + sample tx links in [`DEPLOYMENT.md`](DEPLOYMENT.md).
+
+Then point the env-gated smoke tests at the deployment (the script prints these):
+
+```bash
+export TESSERA_SOLANA_RPC="https://api.devnet.solana.com"
+export TESSERA_SOLANA_PROGRAM_ID="<program id printed by the script>"
+export TESSERA_SOLANA_PAYER_KEYPAIR="$HOME/.config/solana/id.json"
+
+dotnet test ../../src/Tessera.Chains.Solana.Tests \
+    --filter "FullyQualifiedName~Smoke.SolanaDevnetSmokeTests"
+```
+
+`initialize(admin)` is **optional** — the smoke tests use owner-signed DID instructions and
+need no `RegistryConfig`. Run [`scripts/initialize-devnet.sh`](scripts/initialize-devnet.sh)
+only for the admin-gated issuer flows. See
+[`docs/deploying-solana.md`](../../docs/deploying-solana.md) for the full end-to-end guide,
+including issuer registration and re-deploy/cleanup.
 
 ## C# client
 

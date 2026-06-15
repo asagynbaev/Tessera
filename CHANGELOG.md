@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Solana devnet deploy path** (`chains/solana/`): `scripts/deploy-devnet.sh` takes a clean
+  checkout to a deployed devnet program — `anchor build`, read the program id from the generated
+  keypair (`anchor keys list`), patch `declare_id!` + `Anchor.toml` to it, rebuild, and
+  `anchor deploy` — then prints the program id and an explorer link. It is idempotent (re-running
+  upgrades the same id) and fails loudly if the Solana/Anchor toolchain is missing. With the
+  deployed id exported as `TESSERA_SOLANA_PROGRAM_ID` (plus `TESSERA_SOLANA_RPC` /
+  `TESSERA_SOLANA_PAYER_KEYPAIR`), the existing env-gated `SolanaDevnetSmokeTests` run **live**
+  against the program instead of skipping — no test-code changes. The C# client already resolves
+  the program id from `TESSERA_SOLANA_PROGRAM_ID`, so no client rebuild follows a deploy; only the
+  Rust side carries a hardcoded id (committed as a placeholder, patched locally at deploy time).
+  Adds optional `scripts/initialize-devnet.sh` (runs `initialize(admin)` for the admin-gated issuer
+  flows; not needed by the smoke tests) and `chains/solana/DEPLOYMENT.md` to record the deployed id
+  + sample tx links.
+
 ## [3.3.0] - 2026-06-14
 
 Stable cut of the v3.3 line (previews `3.3.0-preview.1` / `.2`): point-in-time snapshot binding and

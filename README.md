@@ -259,7 +259,7 @@ DID documents, attestations, and proofs are never written on-chain.
 
 | Chain | Status | Code |
 |---|---|---|
-| **Solana** | Adapter complete; program needs deployment | [`chains/solana/programs/identity-registry/`](chains/solana/programs/identity-registry/) |
+| **Solana** | Adapter complete; one-command devnet deploy ([`scripts/deploy-devnet.sh`](chains/solana/scripts/deploy-devnet.sh)) — the env-gated smoke suite runs live against the deployed program; record the id in [`chains/solana/DEPLOYMENT.md`](chains/solana/DEPLOYMENT.md) | [`chains/solana/`](chains/solana/) |
 | **EVM** | Adapter complete; contracts + ABI checked in | [`chains/evm/`](chains/evm/) |
 | **Cardano** | Adapter complete; Aiken Plutus V3 validators (preprod) — `aiken check` green, blueprint checked in; preprod script addresses in [`chains/cardano/DEPLOYMENT.md`](chains/cardano/DEPLOYMENT.md) | [`chains/cardano/`](chains/cardano/) |
 | **Stellar** | Adapter scaffold; anchor contract pending | [`chains/stellar/contracts/attestation-verifier/`](chains/stellar/contracts/attestation-verifier/) |
