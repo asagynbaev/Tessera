@@ -1,6 +1,6 @@
-using Tessera.Crypto;
-using Tessera.Crypto.Bulletproofs;
-using Tessera.Crypto.Secp256k1;
+using Tessera.Cryptography;
+using Tessera.Cryptography.Bulletproofs;
+using Tessera.Cryptography.Secp256k1;
 
 namespace Tessera.Examples.PrivacyApps
 {
