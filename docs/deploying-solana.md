@@ -2,6 +2,12 @@
 
 End-to-end guide for deploying [`chains/solana/programs/identity-registry/`](../chains/solana/programs/identity-registry/) to a Solana cluster and exercising the C# adapter against it.
 
+> **Verified on devnet.** This path has been run end-to-end on devnet: program
+> `FRHDcMs7MKDi87TPtcRZBovLrb6Kj2Aa1SL5iqvm1nEi` deployed, with the full
+> `SolanaDevnetSmokeTests` suite passing live (5/5). See
+> [`chains/solana/DEPLOYMENT.md`](../chains/solana/DEPLOYMENT.md) for the record (program id,
+> deployer pubkey, sample tx links).
+
 ## Prerequisites
 
 - **Rust toolchain**: `rustup` with stable Rust ≥ 1.79.

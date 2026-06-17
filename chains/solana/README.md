@@ -67,7 +67,8 @@ is an intentional placeholder — the script patches it locally at deploy time; 
 side carries a hardcoded id (the C# client reads it from `TESSERA_SOLANA_PROGRAM_ID`).
 
 The program ships as an upgradeable program; re-running the script upgrades the same id in
-place. Record the deployed id + sample tx links in [`DEPLOYMENT.md`](DEPLOYMENT.md).
+place. This path is **verified on devnet** — see [`DEPLOYMENT.md`](DEPLOYMENT.md) for the live
+record (program id `FRHDcMs7…`, sample tx links, 5/5 smoke pass); record your own deploy there.
 
 Then point the env-gated smoke tests at the deployment (the script prints these):
 
