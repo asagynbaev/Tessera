@@ -194,4 +194,23 @@ public class OracleCrossCheckTests
             gBc.Twice().Normalize().GetEncoded(true),
             (Point.G + Point.G).Encode());
     }
+
+    [Fact]
+    public void CanonicalDecode_RejectsNonCanonicalFieldAndScalar()
+    {
+        // x == p and s == n are the smallest non-canonical encodings; both must be rejected (F1/F2 —
+        // closes proof/commitment byte-malleability where two encodings map to one point/scalar).
+        Assert.Throws<FormatException>(() => FieldElement.FromCanonicalBytes(To32(P)));
+        Assert.Throws<FormatException>(() => Scalar.FromCanonicalBytes(To32(N)));
+
+        // p-1 and n-1 are canonical and must be accepted (no throw).
+        FieldElement.FromCanonicalBytes(To32(P.Subtract(BcBig.One)));
+        Scalar.FromCanonicalBytes(To32(N.Subtract(BcBig.One)));
+
+        // A compressed point whose x-coordinate equals p must fail to decode (no silent reduction).
+        var nonCanonical = new byte[33];
+        nonCanonical[0] = 0x02;
+        To32(P).CopyTo(nonCanonical, 1);
+        Assert.Throws<FormatException>(() => Point.Decode(nonCanonical));
+    }
 }

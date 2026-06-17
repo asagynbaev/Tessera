@@ -197,7 +197,8 @@ namespace Tessera.Cryptography.Secp256k1
             byte prefix = bytes[0];
             if (prefix != 0x02 && prefix != 0x03)
                 throw new ArgumentException("Invalid compressed point prefix.", nameof(bytes));
-            var x = FieldElement.FromBytes(bytes.AsSpan(1, 32));
+            // Reject non-canonical x (x >= p): a point must have exactly one valid SEC1 encoding.
+            var x = FieldElement.FromCanonicalBytes(bytes.AsSpan(1, 32));
             var rhs = x * x * x + CurveB;
             var y = rhs.Sqrt();
             bool wantOdd = prefix == 0x03;

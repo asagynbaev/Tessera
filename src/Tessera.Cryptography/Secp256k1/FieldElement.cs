@@ -177,6 +177,31 @@ namespace Tessera.Cryptography.Secp256k1
             return new FieldElement(l0, l1, l2, l3);
         }
 
+        /// <summary>
+        /// Parse a 32-byte big-endian field element, REJECTING a non-canonical encoding (x ≥ p) rather
+        /// than reducing it. Use on deserialization where the byte form is security-relevant (SEC1 point
+        /// x-coordinates) so a value has exactly ONE valid encoding — otherwise the same point has
+        /// multiple byte representations (encoding malleability).
+        /// </summary>
+        public static FieldElement FromCanonicalBytes(ReadOnlySpan<byte> bytes)
+        {
+            if (bytes.Length != 32)
+                throw new ArgumentException("Field element encoding must be exactly 32 bytes.", nameof(bytes));
+            ulong l3 = BinaryPrimitives.ReadUInt64BigEndian(bytes[..8]);
+            ulong l2 = BinaryPrimitives.ReadUInt64BigEndian(bytes[8..16]);
+            ulong l1 = BinaryPrimitives.ReadUInt64BigEndian(bytes[16..24]);
+            ulong l0 = BinaryPrimitives.ReadUInt64BigEndian(bytes[24..32]);
+            // Reject x >= p: compute x - p; the absence of a final borrow means x >= p.
+            UInt128 d;
+            d = (UInt128)l0 - P0; ulong brw = (ulong)(d >> 64) & 1UL;
+            d = (UInt128)l1 - P1 - brw; brw = (ulong)(d >> 64) & 1UL;
+            d = (UInt128)l2 - P2 - brw; brw = (ulong)(d >> 64) & 1UL;
+            d = (UInt128)l3 - P3 - brw; brw = (ulong)(d >> 64) & 1UL;
+            if (brw == 0)
+                throw new FormatException("Field element encoding is not canonical (value >= p).");
+            return new FieldElement(l0, l1, l2, l3);
+        }
+
         // ── internals ────────────────────────────────────────────────────────────
 
         /// <summary>

@@ -198,6 +198,30 @@ namespace Tessera.Cryptography.Secp256k1
         }
 
         /// <summary>
+        /// Parse a 32-byte big-endian scalar, REJECTING a non-canonical encoding (s ≥ n) rather than
+        /// reducing it. Use on proof/opening deserialization so each scalar has exactly ONE valid byte
+        /// form (closes scalar-encoding malleability of serialized proofs).
+        /// </summary>
+        public static Scalar FromCanonicalBytes(ReadOnlySpan<byte> bytes)
+        {
+            if (bytes.Length != 32)
+                throw new ArgumentException("Scalar encoding must be exactly 32 bytes.", nameof(bytes));
+            ulong l3 = BinaryPrimitives.ReadUInt64BigEndian(bytes[..8]);
+            ulong l2 = BinaryPrimitives.ReadUInt64BigEndian(bytes[8..16]);
+            ulong l1 = BinaryPrimitives.ReadUInt64BigEndian(bytes[16..24]);
+            ulong l0 = BinaryPrimitives.ReadUInt64BigEndian(bytes[24..32]);
+            // Reject s >= n: compute s - n; the absence of a final borrow means s >= n.
+            UInt128 d;
+            d = (UInt128)l0 - N0; ulong brw = (ulong)(d >> 64) & 1UL;
+            d = (UInt128)l1 - N1 - brw; brw = (ulong)(d >> 64) & 1UL;
+            d = (UInt128)l2 - N2 - brw; brw = (ulong)(d >> 64) & 1UL;
+            d = (UInt128)l3 - N3 - brw; brw = (ulong)(d >> 64) & 1UL;
+            if (brw == 0)
+                throw new FormatException("Scalar encoding is not canonical (value >= n).");
+            return new Scalar(l0, l1, l2, l3);
+        }
+
+        /// <summary>
         /// Inner product of two scalar vectors: sum(a[i] * b[i]).
         /// </summary>
         public static Scalar InnerProduct(Scalar[] a, Scalar[] b)
