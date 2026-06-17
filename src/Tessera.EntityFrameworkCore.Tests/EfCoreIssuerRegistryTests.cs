@@ -75,6 +75,29 @@ public class EfCoreIssuerRegistryTests
     }
 
     [Fact]
+    public async Task Register_TwiceWithDifferentPublicKey_IsRejected()
+    {
+        using var fx = new SqliteFixture();
+        var first = SampleIssuer("did:tessera:trust-root");
+        var keyRotation = first with { PublicKey = RandomNumberGenerator.GetBytes(32) };
+
+        await using (var db = fx.CreateContext())
+            await new EfCoreIssuerRegistry(db).RegisterAsync(first);
+
+        await using (var db = fx.CreateContext())
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => new EfCoreIssuerRegistry(db).RegisterAsync(keyRotation));
+
+        // The original trust-anchor key is unchanged — no silent issuer-key takeover via upsert.
+        await using (var verifyDb = fx.CreateContext())
+        {
+            var loaded = await new EfCoreIssuerRegistry(verifyDb).ResolveAsync(first.Did);
+            Assert.NotNull(loaded);
+            Assert.Equal(first.PublicKey, loaded.PublicKey);
+        }
+    }
+
+    [Fact]
     public async Task Deactivate_RemovesFromResolveResults()
     {
         using var fx = new SqliteFixture();

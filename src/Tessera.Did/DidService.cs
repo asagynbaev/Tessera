@@ -113,10 +113,17 @@ public sealed class DidService
     }
 
     /// <summary>
-    /// Bind a wallet to a DID by verifying that the wallet itself signed a challenge
-    /// containing <c>{did, chain, address, nonce, expiry}</c>. The binding is verifiable
-    /// without trusting any issuer.
+    /// Bind a wallet to a DID by verifying that the wallet itself signed a challenge containing
+    /// <c>{did, chain, address, nonce, expiry}</c> and that the wallet key provably controls the address.
     /// </summary>
+    /// <remarks>
+    /// <b>Trusted-caller-only overload.</b> It proves the WALLET consents to the binding, but NOT that
+    /// the DID controller authorized it — so any wallet owner could otherwise attach their own wallet to
+    /// another principal's DID document. Untrusted/remote callers MUST use
+    /// <see cref="BindWalletAsync(DidId, WalletBindingRequest, ReadOnlyMemory{byte}, CancellationToken)"/>,
+    /// which additionally requires a controller signature. Use this overload only when the caller has
+    /// already authenticated the DID controller out-of-band.
+    /// </remarks>
     public async Task<DidDocument> BindWalletAsync(
         DidId did,
         WalletBindingRequest request,
@@ -124,7 +131,41 @@ public sealed class DidService
     {
         ArgumentNullException.ThrowIfNull(request);
         var doc = await GetRequiredAsync(did, ct).ConfigureAwait(false);
+        return await BindWalletCoreAsync(doc, did, request, ct).ConfigureAwait(false);
+    }
 
+    /// <summary>
+    /// Authenticated overload of <see cref="BindWalletAsync(DidId, WalletBindingRequest, CancellationToken)"/>.
+    /// Requires <paramref name="controllerSignature"/> over the canonical "wallet-bind-auth" challenge
+    /// (see <see cref="BuildWalletBindAuthChallenge"/>) verified against the DID's controller key, so a
+    /// wallet can only be attached with the DID owner's consent. The wallet signature proves the wallet
+    /// agrees; the controller signature proves the DID controller agrees. Mirrors the channel-bind pattern.
+    /// </summary>
+    public async Task<DidDocument> BindWalletAsync(
+        DidId did,
+        WalletBindingRequest request,
+        ReadOnlyMemory<byte> controllerSignature,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var doc = await GetRequiredAsync(did, ct).ConfigureAwait(false);
+        if (doc.Revoked)
+            throw new InvalidOperationException($"DID is revoked: {did}.");
+
+        var controllerKey = ResolveControllerKey(doc);
+        var challenge = BuildWalletBindAuthChallenge(did, doc.Version, request);
+        if (!_verifier.Verify(controllerKey, challenge, controllerSignature.Span))
+            throw new InvalidOperationException("Controller signature did not verify against the wallet-bind challenge.");
+
+        return await BindWalletCoreAsync(doc, did, request, ct).ConfigureAwait(false);
+    }
+
+    private async Task<DidDocument> BindWalletCoreAsync(
+        DidDocument doc,
+        DidId did,
+        WalletBindingRequest request,
+        CancellationToken ct)
+    {
         if (doc.Revoked)
             throw new InvalidOperationException($"DID is revoked: {did}.");
 
@@ -169,6 +210,10 @@ public sealed class DidService
                 .Where(w => !(w.Chain == request.Chain && w.Address == request.Address))
                 .Append(binding)
                 .ToArray(),
+            // Bump the version like every other mutation: the EF store pins its optimistic-concurrency
+            // token to Version-1, so skipping the bump both breaks binding on the relational store and
+            // would leave the resurrect-revoked guard ineffective for this write path.
+            Version = doc.Version + 1,
             UpdatedAt = _clock.GetUtcNow(),
         };
         await _store.SaveAsync(updated, ct).ConfigureAwait(false);
@@ -202,6 +247,27 @@ public sealed class DidService
         w.Write(request.Nonce.Length);
         w.Write(request.Nonce);
         w.Write(request.Expiry.ToUnixTimeSeconds());
+        return ms.ToArray();
+    }
+
+    /// <summary>
+    /// Canonical challenge the DID CONTROLLER signs to authorize a wallet binding — distinct from the
+    /// wallet-signed <see cref="BuildWalletChallenge"/>. Binds the DID, the current document version
+    /// (so the authorization can't be replayed onto a later document state), and the wallet identity
+    /// (chain, address, length-prefixed wallet key).
+    /// </summary>
+    public static byte[] BuildWalletBindAuthChallenge(DidId did, long version, WalletBindingRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        using var ms = new MemoryStream();
+        using var w = new BinaryWriter(ms);
+        w.Write("Tessera/v1/wallet-bind-auth");
+        w.Write(did.Value);
+        w.Write(version);
+        w.Write(request.Chain);
+        w.Write(request.Address);
+        w.Write(request.WalletPublicKey.Length);
+        w.Write(request.WalletPublicKey);
         return ms.ToArray();
     }
 

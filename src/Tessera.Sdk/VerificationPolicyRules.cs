@@ -202,8 +202,11 @@ internal static class PolicyEvaluation
             if (req.AllowedValues is null || req.AllowedValues.Count == 0)
                 return true; // presence of the claim is sufficient
 
-            var asText = value?.ToString();
-            if (asText is not null && req.AllowedValues.Any(v => string.Equals(v, asText, StringComparison.OrdinalIgnoreCase)))
+            // Read the claim value with the SAME invariant formatter the issuer signed it with
+            // (AttestationCanonical), so the policy gates on exactly the canonical bytes and cannot be
+            // satisfied by a value the issuer never signed under a different locale/type rendering.
+            var asText = AttestationCanonical.FormatClaimValueInvariant(value);
+            if (req.AllowedValues.Any(v => string.Equals(v, asText, StringComparison.OrdinalIgnoreCase)))
                 return true;
         }
         return false;

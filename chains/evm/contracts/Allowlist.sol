@@ -64,8 +64,15 @@ contract Allowlist {
     function transferOwnership(address newOwner) external {
         if (msg.sender != owner) revert NotAuthorized();
         if (newOwner == address(0)) revert ZeroAddress();
-        emit OwnershipTransferred(owner, newOwner);
+        address previous = owner;
+        emit OwnershipTransferred(previous, newOwner);
+        // Revoke the outgoing owner's agent rights so a handover doesn't silently retain them.
+        if (agents[previous]) {
+            agents[previous] = false;
+            emit AgentSet(previous, false);
+        }
         owner = newOwner;
         agents[newOwner] = true;
+        emit AgentSet(newOwner, true);
     }
 }

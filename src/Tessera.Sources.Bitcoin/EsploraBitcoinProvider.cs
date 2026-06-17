@@ -32,6 +32,15 @@ public sealed class EsploraBitcoinProvider : IBitcoinProvider, IDisposable
         var baseUrl = string.IsNullOrWhiteSpace(options.BaseUrl)
             ? BitcoinNetworkInfo.DefaultEsploraBaseUrl(options.Network)
             : options.BaseUrl!.TrimEnd('/');
+        // Validate the base URL like the Sumsub/XRoad clients do: an absolute http(s) URL with a host.
+        // Blocks scheme-based SSRF (file://, gopher://, …) and malformed values. NOTE: BaseUrl must be
+        // operator-controlled config, never request/tenant-derived — this provider's reads become
+        // attestation facts (balance / hodl-age), so a hostile endpoint could fabricate them.
+        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var parsedBase)
+            || (parsedBase.Scheme != Uri.UriSchemeHttps && parsedBase.Scheme != Uri.UriSchemeHttp)
+            || string.IsNullOrWhiteSpace(parsedBase.Host))
+            throw new ArgumentException(
+                $"Esplora BaseUrl must be an absolute http(s) URL with a host; got '{baseUrl}'.", nameof(options));
 
         _ownsHttp = http is null;
         _http = http ?? new HttpClient();

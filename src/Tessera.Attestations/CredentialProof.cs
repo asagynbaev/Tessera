@@ -277,14 +277,20 @@ namespace Tessera.Attestations
             var threshold = r.ReadInt64();
             var upper = r.ReadInt64();
             int cLen = r.ReadInt32();
+            if (cLen < 0 || cLen > ms.Length - ms.Position)
+                throw new FormatException("CredentialBundle: invalid commitment length.");
             var commitment = r.ReadBytes(cLen);
             int pLen = r.ReadInt32();
+            if (pLen < 0 || pLen > ms.Length - ms.Position)
+                throw new FormatException("CredentialBundle: invalid range-proof length.");
             var proof = r.ReadBytes(pLen);
 
             byte[]? upperProof = null;
             if (ms.Position < ms.Length)
             {
                 int uLen = r.ReadInt32();
+                if (uLen < 0 || uLen > ms.Length - ms.Position)
+                    throw new FormatException("CredentialBundle: invalid upper-proof length.");
                 if (uLen > 0) upperProof = r.ReadBytes(uLen);
             }
 

@@ -148,6 +148,69 @@ public class AttestationTests
     }
 
     [Fact]
+    public async Task Verify_AlgorithmTag_IsCaseInsensitive()
+    {
+        // Issuer registered as "ED25519"; signature tag is the canonical lowercase "ed25519". The tag
+        // is metadata (not part of the signed canonical input), so a case difference must NOT reject.
+        var (_, issuer, verifier, _) = BuildPair(algorithm: "ED25519");
+        var att = issuer.Issue("human_verified", new DidId("did:tessera:s"), new AttestationPayload { Method = "civic" });
+        var result = await verifier.VerifyAsync(att);
+        Assert.True(result.Valid, result.Reason);
+    }
+
+    private static (AttestationIssuer issuer, AttestationVerifier verifier) BuildPairWithOptions(
+        TimeSpan? maxAge = null, bool requireExpiry = false)
+    {
+        var priv = RandomNumberGenerator.GetBytes(32);
+        var pub = SHA256.HashData(priv);
+        var issuerDid = new DidId("did:tessera:" + Convert.ToHexString(SHA256.HashData(pub)));
+        var registry = new InMemoryIssuerRegistry();
+        registry.Register(new IssuerRecord
+        {
+            Did = issuerDid,
+            PublicKey = pub,
+            Algorithm = "ed25519",
+            SchemaUri = "https://schemas.tessera/attestation/v1",
+            Active = true,
+        });
+        return (
+            new AttestationIssuer(issuerDid, new StubSigner(priv, pub)),
+            new AttestationVerifier(registry, new StubVerifier(priv, pub),
+                maxAttestationAge: maxAge, requireExpiry: requireExpiry));
+    }
+
+    [Fact]
+    public async Task Verify_TooOld_WhenMaxAgeExceeded()
+    {
+        var (issuer, verifier) = BuildPairWithOptions(maxAge: TimeSpan.FromMilliseconds(1));
+        var att = issuer.Issue("phone_verified", new DidId("did:tessera:s"), new AttestationPayload { Method = "twilio" });
+        await Task.Delay(50);
+        var result = await verifier.VerifyAsync(att);
+        Assert.False(result.Valid);
+        Assert.Equal("too_old", result.Reason);
+    }
+
+    [Fact]
+    public async Task Verify_MissingExpiry_WhenRequired_Fails()
+    {
+        var (issuer, verifier) = BuildPairWithOptions(requireExpiry: true);
+        var att = issuer.Issue("human_verified", new DidId("did:tessera:s"), new AttestationPayload { Method = "civic" });
+        var result = await verifier.VerifyAsync(att);
+        Assert.False(result.Valid);
+        Assert.Equal("missing_expiry", result.Reason);
+    }
+
+    [Fact]
+    public async Task Verify_WithExpiry_SatisfiesRequireExpiry()
+    {
+        var (issuer, verifier) = BuildPairWithOptions(requireExpiry: true);
+        var att = issuer.Issue("human_verified", new DidId("did:tessera:s"),
+            new AttestationPayload { Method = "civic" }, validity: TimeSpan.FromHours(1));
+        var result = await verifier.VerifyAsync(att);
+        Assert.True(result.Valid, result.Reason);
+    }
+
+    [Fact]
     public void MerkleTree_RoundTripInclusion()
     {
         var leaves = Enumerable.Range(0, 7)

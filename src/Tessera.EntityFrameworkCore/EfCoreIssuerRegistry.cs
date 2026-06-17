@@ -52,6 +52,13 @@ public sealed class EfCoreIssuerRegistry : IIssuerRegistry, IIssuerRegistrar
         }
         else
         {
+            // The issuer registry is the trust root for attestation verification. Refuse to silently
+            // overwrite an already-registered issuer's PUBLIC KEY via this upsert — that would
+            // substitute the trust anchor and impersonate the issuer. Key rotation must be deliberate.
+            if (!existing.PublicKey.AsSpan().SequenceEqual(record.PublicKey))
+                throw new InvalidOperationException(
+                    $"Refusing to overwrite the public key of already-registered issuer '{record.Did.Value}' " +
+                    "via RegisterAsync. Issuer key rotation must be an explicit, authorized operation.");
             DomainMappings.ToEntity(record, now, existing);
         }
 

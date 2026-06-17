@@ -67,6 +67,22 @@ describe("Allowlist", function () {
     expect(await allowlist.isAllowed(user.address)).to.equal(true);
   });
 
+  it("transferOwnership revokes the outgoing owner's agent rights and grants the new owner", async function () {
+    await expect(allowlist.transferOwnership(agent.address))
+      .to.emit(allowlist, "OwnershipTransferred")
+      .withArgs(owner.address, agent.address);
+
+    // Old owner is no longer an agent; new owner is.
+    expect(await allowlist.agents(owner.address)).to.equal(false);
+    expect(await allowlist.agents(agent.address)).to.equal(true);
+
+    await expect(
+      allowlist.connect(owner).addToAllowlist(user.address)
+    ).to.be.revertedWithCustomError(allowlist, "NotAuthorized");
+    await allowlist.connect(agent).addToAllowlist(user.address);
+    expect(await allowlist.isAllowed(user.address)).to.equal(true);
+  });
+
   it("removeFromAllowlist is idempotent (remove when never added)", async function () {
     await allowlist.removeFromAllowlist(user.address); // no revert
     expect(await allowlist.isAllowed(user.address)).to.equal(false);

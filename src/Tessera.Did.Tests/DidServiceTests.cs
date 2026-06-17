@@ -240,6 +240,40 @@ public class DidServiceTests
     }
 
     [Fact]
+    public async Task BindWallet_Authenticated_RequiresControllerSignature()
+    {
+        // BOLA fix: the authenticated overload must reject a missing/invalid controller signature, so a
+        // wallet owner cannot attach their wallet to a DID without the DID controller's consent — even
+        // though the wallet signature itself is valid.
+        var kr = new TestKeyring();
+        var (didPub, didPriv) = kr.NewKey();
+        var (walletPub, walletPriv) = kr.NewKey();
+        var svc = new DidService(new InMemoryDidStore(), kr.Verifier);
+        var doc = await svc.CreateAsync(didPub);
+
+        var unsigned = new WalletBindingRequest
+        {
+            Chain = "solana",
+            Address = Base58.Encode(walletPub),
+            WalletPublicKey = walletPub,
+            Nonce = RandomNumberGenerator.GetBytes(16),
+            Expiry = DateTimeOffset.UtcNow.AddMinutes(5),
+            Signature = Array.Empty<byte>(),
+        };
+        var request = unsigned with { Signature = kr.Sign(walletPriv, DidService.BuildWalletChallenge(doc.Id, unsigned)) };
+
+        // Wrong controller signature is rejected (valid wallet signature is not enough).
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => svc.BindWalletAsync(doc.Id, request, new byte[32]));
+
+        // Correct controller signature over the canonical wallet-bind-auth challenge is accepted.
+        var controllerSig = kr.Sign(didPriv, DidService.BuildWalletBindAuthChallenge(doc.Id, doc.Version, request));
+        var updated = await svc.BindWalletAsync(doc.Id, request, controllerSig);
+        Assert.Single(updated.Wallets);
+        Assert.Equal(doc.Version + 1, updated.Version);
+    }
+
+    [Fact]
     public async Task Revoke_MarksDocumentRevoked()
     {
         var kr = new TestKeyring();

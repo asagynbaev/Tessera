@@ -3,11 +3,20 @@ namespace Tessera.Attestations;
 using Tessera.Core;
 
 /// <summary>
-/// End-to-end verification of a holder's presentation: the holder signature on the binding must
-/// verify against the key the holder DID derives from, each disclosed attestation must verify
-/// against its issuer, its Merkle inclusion path must hash to the expected root, and (caller-supplied)
-/// the root must match what is anchored on-chain for the holder DID at <c>AsOfRevocationEpoch</c>.
+/// CRYPTOGRAPHIC verification of a holder's presentation ONLY: the holder signature on the binding
+/// verifies against the key the holder DID derives from, each disclosed attestation verifies against
+/// its issuer, and each Merkle inclusion path hashes to the <paramref name="expectedAnchorRoot"/>
+/// supplied by the caller.
 /// </summary>
+/// <remarks>
+/// This class does NOT enforce revocation freshness, presentation freshness, verifier/audience
+/// binding, or that <c>expectedAnchorRoot</c> is the CURRENT on-chain root for the holder DID — it
+/// trusts the root it is handed. Those checks are the caller's responsibility; use
+/// <see cref="Tessera.Sdk.Verifier"/> for full end-to-end verification (it resolves the live anchor,
+/// rejects stale <c>AsOfRevocationEpoch</c>, and enforces the freshness window before delegating the
+/// cryptographic content here). Calling this class directly with a cached or holder-supplied root
+/// skips revocation and accepts a revoked or stale credential.
+/// </remarks>
 public sealed class PresentationVerifier
 {
     private readonly AttestationVerifier _attestationVerifier;

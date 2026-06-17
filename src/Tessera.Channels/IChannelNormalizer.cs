@@ -29,12 +29,20 @@ public interface IChannelNormalizer
 /// </summary>
 public sealed class DefaultChannelNormalizer : IChannelNormalizer
 {
+    /// <summary>Upper bound on handle length: bounds the work and the phone normaliser's stack buffer.</summary>
+    private const int MaxHandleLength = 256;
+
     public string Normalize(string channelType, string handle)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(handle);
         ArgumentException.ThrowIfNullOrEmpty(channelType);
+        if (handle.Length > MaxHandleLength)
+            throw new ArgumentException($"Handle exceeds {MaxHandleLength} characters.", nameof(handle));
 
-        var trimmed = handle.Trim();
+        // NFKC folds Unicode compatibility/confusable forms so two visually-identical handles cannot
+        // derive different commitments (nor a look-alike dodge an existing binding). This participates
+        // in the on-disk format, but only changes commitments for non-NFKC (i.e. non-ASCII) handles.
+        var trimmed = handle.Normalize(System.Text.NormalizationForm.FormKC).Trim();
 
         return channelType switch
         {

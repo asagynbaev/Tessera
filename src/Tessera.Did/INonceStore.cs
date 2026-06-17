@@ -48,12 +48,16 @@ public sealed class InMemoryNonceStore : INonceStore
         return Task.FromResult(fresh);
     }
 
+    // Retain entries past their stored expiry so a replay arriving in a post-expiry clock-skew grace
+    // window is still caught: eviction must not coincide with the still-presentable boundary.
+    private static readonly TimeSpan EvictionMargin = TimeSpan.FromMinutes(5);
+
     private void EvictExpired()
     {
-        var now = _clock.GetUtcNow();
+        var threshold = _clock.GetUtcNow() - EvictionMargin;
         foreach (var kvp in _seen)
         {
-            if (kvp.Value <= now)
+            if (kvp.Value <= threshold)
                 _seen.TryRemove(kvp.Key, out _);
         }
     }

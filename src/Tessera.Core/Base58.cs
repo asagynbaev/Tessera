@@ -30,9 +30,17 @@ public static class Base58
         return sb.ToString();
     }
 
+    /// <summary>
+    /// Maximum accepted input length. Legitimate Tessera values (32-byte hashes, public keys) encode
+    /// to ~50 chars; the cap bounds the O(n²) BigInteger decode against an unbounded-input DoS.
+    /// </summary>
+    private const int MaxEncodedLength = 512;
+
     public static byte[] Decode(ReadOnlySpan<char> s)
     {
         if (s.IsEmpty) return Array.Empty<byte>();
+        if (s.Length > MaxEncodedLength)
+            throw new FormatException($"Base58 input too long ({s.Length} > {MaxEncodedLength}).");
 
         int leadingZeros = 0;
         while (leadingZeros < s.Length && s[leadingZeros] == Alphabet[0]) leadingZeros++;
@@ -46,7 +54,9 @@ public static class Base58
             bi = bi * fiftyEight + idx;
         }
 
-        var bytes = bi.ToByteArray(isUnsigned: true, isBigEndian: true);
+        // A zero value (all-'1' input) must contribute no value bytes: ToByteArray would emit a
+        // spurious 0x00 that double-counts with the leading-zero prefix added below.
+        var bytes = bi.IsZero ? Array.Empty<byte>() : bi.ToByteArray(isUnsigned: true, isBigEndian: true);
         if (leadingZeros == 0) return bytes;
 
         var result = new byte[leadingZeros + bytes.Length];
