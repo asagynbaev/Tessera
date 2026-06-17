@@ -79,7 +79,11 @@ internal sealed class SolanaSmokeConfig
     /// </summary>
     private static byte[] ParseSolanaJsonKeypair(string json)
     {
-        var parsed = JsonSerializer.Deserialize<byte[]>(json)
+        // Solana CLI keypair files are a JSON array of 64 byte-valued integers, e.g.
+        // [25,24,8,252,...]. System.Text.Json maps `byte[]` to a Base64 *string*, so it cannot
+        // read that array form (it throws "could not be converted to System.Byte[]"). Deserialize
+        // through List<byte>, which reads each JSON number as a byte.
+        var parsed = JsonSerializer.Deserialize<List<byte>>(json)?.ToArray()
             ?? throw new FormatException("Keypair JSON deserialized to null.");
         if (parsed.Length != 64)
             throw new FormatException($"Expected 64 bytes in keypair file (got {parsed.Length}).");

@@ -52,7 +52,10 @@ public sealed class SolanaChainAnchor : IChainAnchor
 
         _rpc = ClientFactory.GetClient(rpcUrl);
         _programId = new PublicKey(programId);
-        _payer = new Account(payerKeypair[..32].ToArray(), payerKeypair[32..].ToArray());
+        // Solnet's Account/PrivateKey expects the FULL 64-byte Ed25519 secret key (32-byte seed ‖
+        // 32-byte public key) as the private key — passing only the 32-byte seed throws
+        // "invalid key length". The supplied 64-byte keypair is exactly that secret key.
+        _payer = new Account(payerKeypair.ToArray(), payerKeypair[32..].ToArray());
         _commitment = commitment;
     }
 
@@ -193,7 +196,36 @@ public sealed class SolanaChainAnchor : IChainAnchor
         if (!sendResp.WasSuccessful || string.IsNullOrEmpty(sendResp.Result))
             throw new InvalidOperationException($"Solana submit failed: {sendResp.Reason}");
 
+        // SendTransaction returns before the cluster makes the write visible to reads. Without
+        // waiting for the signature to reach the configured commitment, a caller's read-back or a
+        // dependent instruction races propagation — on devnet that surfaces as AccountNotInitialized
+        // on the next instruction, or a null/stale read right after a write.
+        await ConfirmAsync(sendResp.Result, ct).ConfigureAwait(false);
+
         return new AnchorTxResult(sendResp.Result, null, DateTimeOffset.UtcNow);
+    }
+
+    /// <summary>
+    /// Poll until <paramref name="signature"/> reaches at least <c>confirmed</c>, or throw on
+    /// timeout. Makes a submitted write durable/visible before <see cref="SubmitAsync"/> returns.
+    /// </summary>
+    private async Task ConfirmAsync(string signature, CancellationToken ct)
+    {
+        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(60);
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+            var resp = await _rpc
+                .GetSignatureStatusesAsync(new List<string> { signature }, searchTransactionHistory: true)
+                .ConfigureAwait(false);
+            var info = resp.WasSuccessful ? resp.Result?.Value?.FirstOrDefault() : null;
+            var status = info?.ConfirmationStatus;
+            if (status is "confirmed" or "finalized")
+                return;
+            if (DateTimeOffset.UtcNow > deadline)
+                throw new InvalidOperationException($"Solana tx {signature} not confirmed within 60s (last status: {status ?? "none"}).");
+            await Task.Delay(1000, ct).ConfigureAwait(false);
+        }
     }
 
     private static byte[] ComputeDidHash(DidId did)
