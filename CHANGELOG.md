@@ -5,18 +5,42 @@
 ### Added
 
 - **Solana devnet deploy path** (`chains/solana/`): `scripts/deploy-devnet.sh` takes a clean
-  checkout to a deployed devnet program — `anchor build`, read the program id from the generated
-  keypair (`anchor keys list`), patch `declare_id!` + `Anchor.toml` to it, rebuild, and
-  `anchor deploy` — then prints the program id and an explorer link. It is idempotent (re-running
-  upgrades the same id) and fails loudly if the Solana/Anchor toolchain is missing. With the
-  deployed id exported as `TESSERA_SOLANA_PROGRAM_ID` (plus `TESSERA_SOLANA_RPC` /
-  `TESSERA_SOLANA_PAYER_KEYPAIR`), the existing env-gated `SolanaDevnetSmokeTests` run **live**
-  against the program instead of skipping — no test-code changes. The C# client already resolves
-  the program id from `TESSERA_SOLANA_PROGRAM_ID`, so no client rebuild follows a deploy; only the
-  Rust side carries a hardcoded id (committed as a placeholder, patched locally at deploy time).
-  Adds optional `scripts/initialize-devnet.sh` (runs `initialize(admin)` for the admin-gated issuer
-  flows; not needed by the smoke tests) and `chains/solana/DEPLOYMENT.md` to record the deployed id
-  + sample tx links.
+  checkout to a deployed devnet program — generate the program keypair, patch `declare_id!` +
+  `Anchor.toml` to it, `anchor build --no-idl`, and `anchor deploy` — then prints the program id
+  and an explorer link. Idempotent (re-running upgrades the same id) and fails loudly if the
+  Solana/Anchor toolchain is missing. With the deployed id exported as `TESSERA_SOLANA_PROGRAM_ID`
+  (plus `TESSERA_SOLANA_RPC` / `TESSERA_SOLANA_PAYER_KEYPAIR`), the env-gated
+  `SolanaDevnetSmokeTests` run **live** against the program instead of skipping. The C# client
+  resolves the program id from `TESSERA_SOLANA_PROGRAM_ID`, so no client rebuild follows a deploy;
+  only the Rust side carries a hardcoded id (committed as a placeholder, patched locally at deploy
+  time). Adds optional `scripts/initialize-devnet.sh` (runs `initialize(admin)` for the admin-gated
+  issuer flows; not needed by the smoke tests), a committed `chains/solana/Cargo.lock` for a
+  reproducible build on the pinned toolchain, and `chains/solana/DEPLOYMENT.md` recording the
+  verified deployment (program id `FRHDcMs7MKDi87TPtcRZBovLrb6Kj2Aa1SL5iqvm1nEi`, sample
+  `register_did` / `bump_revocation` tx links, 5/5 smoke pass).
+
+### Fixed
+
+- **Solana keypair loading + write confirmation** (`Tessera.Chains.Solana`): three latent bugs in
+  the env-gated devnet path — never run, since the smoke tests skip without `TESSERA_SOLANA_*` (the
+  same class as the v3.2.0 EVM `registerDid` bug). (1) The smoke config parsed the Solana CLI
+  keypair with `JsonSerializer.Deserialize<byte[]>`, but System.Text.Json maps `byte[]` to a
+  Base64 *string* and cannot read the standard int-array keypair (`[25,24,8,…]`) — now deserialized
+  through `List<byte>`. (2) `SolanaChainAnchor` built the Solnet `Account` from the 32-byte seed
+  (`payerKeypair[..32]`), but Solnet's `PrivateKey` needs the full 64-byte secret key (the 32-byte
+  form throws "invalid key length") — now passes the full keypair. (3) `SubmitAsync` returned right
+  after `SendTransaction` without awaiting confirmation, so a read-back or dependent instruction
+  raced devnet propagation (surfacing as `AccountNotInitialized` on the next tx, or a null/stale
+  read) — now waits for the signature to reach `confirmed`. The five `SolanaDevnetSmokeTests` pass
+  live against the deployed devnet program (5/5); all 56 Solana unit tests still pass.
+- **Solana program builds on its pinned toolchain** (`chains/solana/`): the committed `Anchor.toml`
+  carried an invalid-base58 placeholder program id (`ZkpId1111…` — `I` is not a base58 character),
+  failing `anchor build` at manifest parse; replaced with the valid all-ones placeholder. A
+  committed `Cargo.lock` pins transitive crates (blake3, borsh, proc-macro-crate, jobserver,
+  indexmap, …) to the last versions buildable on the Anchor 0.30.1 image (Rust 1.79 / platform-tools
+  rustc 1.75) — newer releases require `edition2024` / rustc > 1.75. The deploy builds `--no-idl`
+  (the IDL is unused by the C# client and its generation hits anchor-syn 0.30.1's removed
+  `proc_macro2::Span::source_file()`).
 
 ## [3.3.0] - 2026-06-14
 
