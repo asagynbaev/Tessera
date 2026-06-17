@@ -76,7 +76,7 @@ public static class AttestationCanonical
     /// string-valued claims for cross-implementation determinism; a future major version may switch to
     /// a type-tagged, length-framed claim encoding (a breaking wire change).
     /// </remarks>
-    private static string FormatClaimValueInvariant(object? value) => value switch
+    public static string FormatClaimValueInvariant(object? value) => value switch
     {
         null => "",
         string s => s,

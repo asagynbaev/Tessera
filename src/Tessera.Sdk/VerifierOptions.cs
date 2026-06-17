@@ -23,4 +23,16 @@ public sealed record VerifierOptions
     /// <see cref="TimeProvider.System"/>. Inject a fake provider in tests.
     /// </summary>
     public TimeProvider? Clock { get; init; }
+
+    /// <summary>
+    /// When set, an attestation is rejected (<c>too_old</c>) once <c>now − IssuedAt</c> exceeds this,
+    /// capping the lifetime of credentials whose issuer set no <c>ExpiresAt</c>. Null = no age cap.
+    /// </summary>
+    public TimeSpan? MaxAttestationAge { get; init; }
+
+    /// <summary>
+    /// When true, an attestation lacking an <c>ExpiresAt</c> is rejected (<c>missing_expiry</c>), so a
+    /// sensitive credential cannot be valid forever. Default false (backward-compatible).
+    /// </summary>
+    public bool RequireExpiry { get; init; }
 }

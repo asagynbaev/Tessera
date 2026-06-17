@@ -148,6 +148,8 @@ namespace Tessera.Examples.PrivacyApps
         private static byte[] ReadField(BinaryReader r)
         {
             int len = r.ReadInt32();
+            if (len < 0 || len > r.BaseStream.Length - r.BaseStream.Position)
+                throw new FormatException($"TransferBundle: invalid field length {len}.");
             return r.ReadBytes(len);
         }
     }

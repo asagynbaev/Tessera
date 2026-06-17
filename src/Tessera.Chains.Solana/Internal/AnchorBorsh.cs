@@ -118,6 +118,8 @@ internal ref struct AnchorBorshReader
 
     public byte[] ReadFixedBytes(int length)
     {
+        if (length < 0 || length > _buf.Length)
+            throw new FormatException($"Borsh: cannot read {length} bytes ({_buf.Length} remaining).");
         var result = _buf[..length].ToArray();
         _buf = _buf[length..];
         return result;
@@ -127,7 +129,11 @@ internal ref struct AnchorBorshReader
 
     public string ReadString()
     {
+        // The u32 length is attacker-controlled (raw on-chain account bytes); reject anything that
+        // overruns the buffer before slicing. The (int) cast also turns lengths >= 2^31 negative.
         var len = (int)ReadU32();
+        if (len < 0 || len > _buf.Length)
+            throw new FormatException($"Borsh: string length {len} exceeds {_buf.Length} remaining bytes.");
         var bytes = _buf[..len];
         var s = Encoding.UTF8.GetString(bytes);
         _buf = _buf[len..];

@@ -25,7 +25,9 @@ public sealed class Verifier
         ArgumentNullException.ThrowIfNull(options);
         _options = options;
         _clock = options.Clock ?? TimeProvider.System;
-        _attVerifier = new AttestationVerifier(options.IssuerRegistry, options.SignatureVerifier, options.Clock);
+        _attVerifier = new AttestationVerifier(
+            options.IssuerRegistry, options.SignatureVerifier, options.Clock,
+            options.MaxAttestationAge, options.RequireExpiry);
         _presVerifier = new PresentationVerifier(_attVerifier, options.SignatureVerifier);
     }
 

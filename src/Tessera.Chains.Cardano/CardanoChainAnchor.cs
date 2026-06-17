@@ -160,6 +160,11 @@ public sealed class CardanoChainAnchor : IChainAnchor, IDisposable
         var utxo = await FindAnchorUtxoAsync(didHash, ct).ConfigureAwait(false);
         if (utxo?.InlineDatumCbor is null) return null;
         var datum = DatumCodec.DecodeAnchorDatum(utxo.InlineDatumCbor);
+        // Bind the datum to the queried DID. The asset name (policyId‖didHash) selected this UTxO, but
+        // a misconfigured or swappable validator/minting policy could attach a datum for a DIFFERENT
+        // did_hash. Fail closed (treat as no anchor) unless the datum's own DidHash is the one queried.
+        if (!datum.DidHash.AsSpan().SequenceEqual(didHash))
+            return null;
         var updatedAt = await ResolveBlockTimeAsync(utxo.TxHash, ct).ConfigureAwait(false);
         return AnchorStateMapper.ToAnchorState(did, datum, updatedAt);
     }
