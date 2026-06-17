@@ -169,6 +169,10 @@ public sealed class DidService
                 .Where(w => !(w.Chain == request.Chain && w.Address == request.Address))
                 .Append(binding)
                 .ToArray(),
+            // Bump the version like every other mutation: the EF store pins its optimistic-concurrency
+            // token to Version-1, so skipping the bump both breaks binding on the relational store and
+            // would leave the resurrect-revoked guard ineffective for this write path.
+            Version = doc.Version + 1,
             UpdatedAt = _clock.GetUtcNow(),
         };
         await _store.SaveAsync(updated, ct).ConfigureAwait(false);

@@ -68,6 +68,24 @@ contract PermissionedToken {
         return true;
     }
 
+    /// @notice Atomically raise a spender's allowance, avoiding the approve() front-running race
+    ///         (set-to-N-then-set-to-M lets a watching spender drain N before M lands).
+    function increaseAllowance(address spender, uint256 addedValue) external returns (bool) {
+        uint256 updated = allowance[msg.sender][spender] + addedValue; // 0.8 checked add
+        allowance[msg.sender][spender] = updated;
+        emit Approval(msg.sender, spender, updated);
+        return true;
+    }
+
+    /// @notice Atomically lower a spender's allowance, clamped at zero.
+    function decreaseAllowance(address spender, uint256 subtractedValue) external returns (bool) {
+        uint256 current = allowance[msg.sender][spender];
+        uint256 updated = subtractedValue >= current ? 0 : current - subtractedValue;
+        allowance[msg.sender][spender] = updated;
+        emit Approval(msg.sender, spender, updated);
+        return true;
+    }
+
     function transferFrom(address from, address to, uint256 amount) external returns (bool) {
         uint256 current = allowance[from][msg.sender];
         if (current < amount) revert InsufficientAllowance();

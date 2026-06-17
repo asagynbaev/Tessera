@@ -79,6 +79,10 @@ public sealed record BitcoinChallenge
     {
         if (Nonce is null || Nonce.Length < 16)
             throw new InvalidOperationException("Challenge nonce must be at least 16 bytes.");
+        // The canonical string is line-joined, so a field containing a line separator would make the
+        // signed bytes ambiguous (two different (sub, aud) interpretations could share one signature).
+        if (HasLineBreak(Subject.Value) || HasLineBreak(Audience))
+            throw new InvalidOperationException("Challenge subject/audience must not contain line breaks.");
 
         var nonceHex = Convert.ToHexString(Nonce).ToLowerInvariant();
         var sb = new StringBuilder();
@@ -93,4 +97,6 @@ public sealed record BitcoinChallenge
 
     /// <summary>The canonical string encoded as UTF-8 bytes.</summary>
     public byte[] ToCanonicalBytes() => Encoding.UTF8.GetBytes(ToCanonicalString());
+
+    private static bool HasLineBreak(string s) => s.Contains('\n') || s.Contains('\r');
 }

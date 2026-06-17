@@ -201,14 +201,27 @@ public sealed class CardanoChainAnchor : IChainAnchor, IDisposable
         // the controller before trusting it, and skip (rather than fail) on anything unauthenticated
         // so a poisoned tx cannot suppress the controller's own newer state. GetMetadataTxsAsync
         // returns newest-first; take the first entry that authenticates for this DID.
+        // Select the authenticated candidate with the HIGHEST epoch — not merely the newest tx. In
+        // metadata mode nothing on-chain enforces monotonicity, so a lower-epoch republish (or a
+        // concurrent root refresh that preserved the old epoch) must not be able to mask a higher-epoch
+        // revocation bump.
+        MetadataTx? best = null;
+        byte[] bestRoot = Array.Empty<byte>();
+        ulong bestEpoch = 0;
         foreach (var tx in txs)
         {
             if (!TryReadDidMatch(tx, didHex, didHash, out var root, out var epoch)) continue;
             if (!IsFromController(tx)) continue;
-            var updatedAt = await ResolveBlockTimeAsync(tx.TxHash, ct).ConfigureAwait(false);
-            return AnchorStateMapper.ToAnchorState(did, root, epoch, updatedAt);
+            if (best is null || epoch > bestEpoch)
+            {
+                best = tx;
+                bestRoot = root;
+                bestEpoch = epoch;
+            }
         }
-        return null;
+        if (best is null) return null;
+        var updatedAt = await ResolveBlockTimeAsync(best.TxHash, ct).ConfigureAwait(false);
+        return AnchorStateMapper.ToAnchorState(did, bestRoot, bestEpoch, updatedAt);
     }
 
     /// <summary>

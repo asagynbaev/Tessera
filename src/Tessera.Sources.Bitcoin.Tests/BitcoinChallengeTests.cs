@@ -30,6 +30,20 @@ public class BitcoinChallengeTests
     }
 
     [Fact]
+    public void CanonicalString_RejectsLineBreakInFields()
+    {
+        // A subject DID or audience carrying a line break would make the line-joined canonical bytes
+        // ambiguous — two different (sub, aud) interpretations could share one signature. Reject it.
+        var evilAud = BitcoinChallenge.Create(new DidId("did:tessera:x"), "good", TimeSpan.FromMinutes(5))
+            with { Audience = "good\naud=evil" };
+        Assert.Throws<InvalidOperationException>(() => evilAud.ToCanonicalString());
+
+        var evilSub = BitcoinChallenge.Create(new DidId("did:tessera:x"), "good", TimeSpan.FromMinutes(5))
+            with { Subject = new DidId("did:tessera:x\naud=evil") };
+        Assert.Throws<InvalidOperationException>(() => evilSub.ToCanonicalString());
+    }
+
+    [Fact]
     public void Create_ProducesFreshNonce_OfRequestedSize_AndWindow()
     {
         var clock = new FakeClock(DateTimeOffset.FromUnixTimeSeconds(1_700_000_000));
