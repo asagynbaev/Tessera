@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [3.3.1] - 2026-06-17
+
 ### Added
 
 - **Solana devnet deploy path** (`chains/solana/`): `scripts/deploy-devnet.sh` takes a clean
