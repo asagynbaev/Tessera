@@ -3,10 +3,10 @@ seeds = false
 skip-lint = false
 
 [programs.localnet]
-identity_registry = "ZkpId11111111111111111111111111111111111111"
+identity_registry = "11111111111111111111111111111114"
 
 [programs.devnet]
-identity_registry = "ZkpId11111111111111111111111111111111111111"
+identity_registry = "11111111111111111111111111111114"
 
 [registry]
 url = "https://api.apr.dev"

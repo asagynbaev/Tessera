@@ -1,0 +1,12 @@
+{
+  "name": "tessera-solana-scripts",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Operational scripts for the Tessera identity-registry Anchor program (devnet deploy + optional initialize). Not published; not part of the C# package.",
+  "scripts": {
+    "initialize": "node scripts/initialize.js"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.95.0"
+  }
+}
