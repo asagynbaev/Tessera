@@ -4,19 +4,21 @@
 # Solana cluster (devnet by default). Takes a clean checkout to a deployed program and
 # prints the program id you feed the C# smoke tests.
 #
-# Flow (this is the canonical Anchor first-deploy dance, with the `anchor keys sync` step
-# done explicitly so it is visible and scriptable):
+# Flow (the `anchor keys sync` step is done explicitly so it is visible and scriptable;
+# the keypair is generated up front so the program id is known BEFORE the build — that
+# lets us build exactly once with the correct id, and avoids `anchor build` choking while
+# parsing a placeholder program id out of Anchor.toml):
 #
 #   1. preflight  — require the solana + anchor toolchain on PATH (fail loudly otherwise).
-#   2. anchor build           → generates target/deploy/identity_registry-keypair.json
-#                               (the program keypair) on a clean checkout.
-#   3. anchor keys list       → read the program id derived from that keypair.
-#   4. patch                  → write that id into declare_id!() in src/lib.rs AND the
-#                               [programs.*] entries of Anchor.toml.
-#   5. anchor build           → rebuild so the .so embeds the now-correct declared id.
-#   6. anchor deploy          → upload to the cluster (re-running upgrades in place).
-#   7. summary                → print the program id, an explorer link, and the three
-#                               env vars the devnet smoke tests need.
+#   2. keypair    — ensure target/deploy/identity_registry-keypair.json exists (generate
+#                   it on a clean checkout) so the program id is known up front.
+#   3. id         — read the program id derived from that keypair (anchor keys list).
+#   4. patch      — write that id into declare_id!() in src/lib.rs AND the [programs.*]
+#                   entries of Anchor.toml, BEFORE building.
+#   5. anchor build  → compile once, with the correct id already baked in.
+#   6. anchor deploy → upload to the cluster (re-running upgrades in place).
+#   7. summary    → print the program id, an explorer link, and the three env vars the
+#                   devnet smoke tests need.
 #
 # Idempotent: the program id is deterministic from the keypair, so steps 3–4 converge to
 # the same value on every run and step 6 redeploys/upgrades the same address.
@@ -88,17 +90,29 @@ fi
 
 cd "$SOLANA_DIR"
 
-# ── 2. first build — generates the program keypair on a clean checkout ────────
-step "anchor build (1/2) — compile + generate the program keypair if missing"
-anchor build
+# ── 2. ensure the program keypair exists (generated on a clean checkout) ──────
+KEYPAIR="$SOLANA_DIR/target/deploy/identity_registry-keypair.json"
+step "Ensuring the program keypair exists"
+if [ -f "$KEYPAIR" ]; then
+  info "using existing $KEYPAIR"
+else
+  mkdir -p "$SOLANA_DIR/target/deploy"
+  solana-keygen new --no-bip39-passphrase --silent --outfile "$KEYPAIR"
+  info "generated $KEYPAIR"
+fi
 
 # ── 3. read the program id derived from the program keypair ──────────────────
-step "anchor keys list — reading the program id"
-PROGRAM_ID="$(anchor keys list | awk -F'[: ]+' '/identity_registry/ {print $2; exit}' | tr -d '[:space:]')"
-[ -n "$PROGRAM_ID" ] || die "could not parse the program id from 'anchor keys list'. Run it manually to debug."
+step "Reading the program id (anchor keys list)"
+PROGRAM_ID="$(anchor keys list 2>/dev/null | awk -F'[: ]+' '/identity_registry/ {print $2; exit}' | tr -d '[:space:]')"
+# Fallback: read it straight off the keypair if `anchor keys list` is unavailable
+# (e.g. it failed to parse a placeholder id still in Anchor.toml on a fresh checkout).
+[ -n "$PROGRAM_ID" ] || PROGRAM_ID="$(solana address -k "$KEYPAIR" 2>/dev/null | tr -d '[:space:]')"
+[ -n "$PROGRAM_ID" ] || die "could not determine the program id from $KEYPAIR."
 info "program id: $PROGRAM_ID"
 
-# ── 4. patch declare_id! + Anchor.toml to the real id (idempotent) ────────────
+# ── 4. patch declare_id! + Anchor.toml to the real id, BEFORE building ─────────
+# Done before the build so the program id is valid + correct everywhere and the .so
+# embeds it on the first (only) compile.
 step "Patching declare_id!() in programs/identity-registry/src/lib.rs"
 sed -i.bak -E "s/declare_id!\(\"[^\"]*\"\)/declare_id!(\"${PROGRAM_ID}\")/" "$LIB_RS"
 rm -f "$LIB_RS.bak"
@@ -111,9 +125,15 @@ sed -i.bak -E "s/^([[:space:]]*identity_registry[[:space:]]*=[[:space:]]*)\"[^\"
 rm -f "$ANCHOR_TOML.bak"
 grep -nE '^[[:space:]]*identity_registry[[:space:]]*=' "$ANCHOR_TOML" | while read -r l; do info "$l"; done
 
-# ── 5. rebuild so the .so embeds the correct declared id ──────────────────────
-step "anchor build (2/2) — rebuild with the synced declare_id!"
-anchor build
+# ── 5. build once, with the correct id already in place ───────────────────────
+# --no-idl: the on-chain IDL is not consumed by anything here — the C# client
+# (src/Tessera.Chains.Solana) and scripts/initialize.js both encode the Anchor
+# discriminators + account metas directly. Generating the IDL drives anchor-syn 0.30.1's
+# `proc_macro2::Span::source_file()` path, a nightly API removed from current proc-macro2,
+# which fails the build on the Anchor 0.30.1 / Solana 1.18 toolchain. Skipping it compiles
+# the program cleanly and is sufficient for deploy + the devnet smoke tests.
+step "anchor build (--no-idl)"
+anchor build --no-idl
 
 # ── 6. deploy ────────────────────────────────────────────────────────────────
 step "anchor deploy --provider.cluster $CLUSTER"
