@@ -2,6 +2,81 @@
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-06-17
+
+> 🔒 **The security-hardening release.** A multi-round security audit — cryptography, on-chain
+> contracts, external-service plugins, and IDOR / race-condition methodology — swept the whole stack
+> and closed **every finding it surfaced**, with **no Critical issues in any round**. Headline:
+> `Tessera.Cryptography` is now **constant-time**, pinned against an independent **BouncyCastle**
+> cross-check oracle. Major version because the legacy duplicate crypto stack is removed from the
+> published meta-package (see Breaking).
+
+### ⚠ Breaking
+
+- **Removed the legacy `Tessera.Crypto.*` / `Tessera.Security.*` duplicate.** The `Sagynbaev.Tessera`
+  meta-package shipped a *second, variable-time* copy of the secp256k1 / Bulletproofs / Pedersen
+  primitives (left over from the v3 split) alongside `Tessera.Cryptography`. It is gone — use
+  `Tessera.Cryptography` (`…Secp256k1`, `…Bulletproofs`, `PedersenCommitment`). The meta-package is
+  now pure (sub-package references only, no compiled source) and the legacy `Tessera.Tests` project
+  was retired with it.
+- **Channel-handle normalisation now applies Unicode NFKC.** Commitments for **non-ASCII** channel
+  handles change (ASCII handles are unaffected); the normaliser is part of the on-disk format, so
+  re-derive any stored non-ASCII channel commitments. Closes a homoglyph / confusable collision where
+  two visually-identical handles produced different commitments.
+- **Stricter input rejection.** Non-canonical point/scalar encodings (`x ≥ p`, `s ≥ n`) are now
+  REJECTED instead of silently reduced; `EfCoreIssuerRegistry.RegisterAsync` refuses to overwrite an
+  existing issuer's public key; `EsploraBitcoinProvider` rejects a non-http(s) `BaseUrl`. Each closes
+  a real issue but may reject an input a prior version accepted.
+
+### Security
+
+- **Constant-time secp256k1.** `FieldElement` / `Scalar` / `Point` are reimplemented over fixed
+  4×64-bit limbs (no `BigInteger` in the hot path): pseudo-Mersenne reduction mod p, Barrett
+  reduction mod n, fixed-exponent inversion, and a fixed 256-iteration double-and-add-**always**
+  `ScalarMul` with a branchless point-select over complete add/double formulas. The loop length,
+  per-bit work, and memory access no longer depend on the secret scalar, so blinding factors and
+  range-proof witnesses no longer leak through timing. (Still self-implemented managed code — an
+  external cryptography audit remains recommended; see `docs/security-audit-readiness.md`.)
+- **Independent BouncyCastle cross-check oracle** (`OracleCrossCheckTests`) pins the field / scalar /
+  point arithmetic — mul, add, sub, inverse, sqrt, `k·G`, `k·H`, point addition, the curve constants —
+  against BouncyCastle on edge + pseudo-random inputs. Round-trip self-tests cannot catch a
+  self-consistent reduction bug; the external oracle can.
+- **No encoding malleability.** Point and Bulletproofs-scalar deserialisation rejects non-canonical
+  encodings, so a commitment / proof has exactly one valid byte form.
+- **Controller-authenticated wallet binding (BOLA).** `DidService.BindWalletAsync` gains an
+  authenticated overload requiring a DID-controller signature (`BuildWalletBindAuthChallenge`), so a
+  wallet owner can no longer attach their wallet to another principal's DID document.
+- **Issuer trust-root protection.** The issuer registry refuses to overwrite an existing issuer's
+  public key via upsert — closing a trust-anchor-substitution / issuer-impersonation path.
+- **SSRF / canonicalisation / replay hardening.** Esplora `BaseUrl` is validated (blocks scheme-based
+  SSRF); the Bitcoin control challenge rejects line breaks in subject/audience; Cardano metadata-mode
+  reads select the **highest** authenticated revocation epoch (no lower-epoch republish can mask a
+  bump); the in-memory nonce store keeps an eviction margin past expiry; a cached `ExpectedAnchorRoot`
+  is cross-checked against the live anchor (`anchor_root_stale`).
+
+### Added
+
+- `FieldElement.FromCanonicalBytes` / `Scalar.FromCanonicalBytes` — reject non-canonical encodings on
+  deserialisation (the reducing `FromBytes` is kept for the Fiat–Shamir challenge squeeze and
+  hash-to-curve, where reduction is correct).
+- Authenticated `BindWalletAsync(did, request, controllerSignature)` + `BuildWalletBindAuthChallenge`.
+- `AttestationVerifier` / `VerifierOptions`: optional `MaxAttestationAge` and `RequireExpiry` to cap
+  credentials whose issuer set no `ExpiresAt`.
+- Reference `PermissionedToken`: `increaseAllowance` / `decreaseAllowance` (ERC-20 approve race).
+
+### Fixed
+
+- Length guards on the hand-rolled length-prefixed decoders (`CredentialProof`, the Solana Borsh
+  reader, the example transfer codec) — a malformed length prefix no longer crashes the verifier.
+- `BindWalletAsync` now bumps the document `Version` like every other mutation (it previously broke
+  binding on the EF store's optimistic-concurrency token and the resurrect-revoked guard).
+- Claim-policy matching reads claim values with the same culture-invariant formatter the issuer signs
+  with, so a gate cannot be satisfied by a value the issuer never canonically signed.
+- `Base58.Decode` is length-capped (bounds the O(n²) decode) with an all-`'1'` zero-value fix.
+- `PresentationVerifier` documentation corrected to crypto-content-only (revocation / freshness live
+  in the SDK `Verifier`); the attestation algorithm tag is matched case-insensitively (`Ed25519` no
+  longer silently rejects an issuer's attestations).
+
 ## [3.3.1] - 2026-06-17
 
 ### Added

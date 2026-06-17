@@ -47,12 +47,11 @@ proof verification on-chain. Auditors should confirm no code path writes anythin
 
 ## Addressed
 
-> **Latest security-hardening pass.** A multi-round review (cryptography, on-chain, external-service,
-> and IDOR/race methodology) closed the items below. **No Critical findings were identified in any
-> round.** The fixes land across a coordinated set of branches merging into the next release —
-> `fix/constant-time-secp256k1` (constant-time crypto + canonical encodings),
-> `fix/security-audit-findings` (verification, DID/registry, source-plugin, chain-adapter fixes), and
-> `chore/remove-legacy-crypto-duplicate` (legacy-duplicate removal).
+> **Security-hardening pass — shipped in 4.0.0** (see `CHANGELOG.md`). A multi-round review
+> (cryptography, on-chain, external-service, and IDOR/race methodology) closed the items below.
+> **No Critical findings were identified in any round.** Delivered: constant-time crypto + canonical
+> encodings; verification, DID/registry, source-plugin, and chain-adapter fixes; and removal of the
+> legacy duplicate crypto stack (the breaking change behind the 4.0.0 major bump).
 >
 > - **Constant-time secp256k1 (was Known limitation #1).** `FieldElement` / `Scalar` / `Point` are
 >   reimplemented over fixed 4×64-bit limbs (no `BigInteger` in the hot path): pseudo-Mersenne

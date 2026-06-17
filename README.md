@@ -56,14 +56,16 @@ the `Sagynbaev.Tessera.Sdk` package); namespaces remain `Tessera.*`.
 | `Tessera.Sources.XRoad` | Layer-2 plugin: X-Road government registry → residency / property / encumbrance. |
 | `Tessera.Sources.Bitcoin` | Layer-2 plugin: proven control of Bitcoin addresses (BIP-137 signed challenge) → `btc_control` (address count only) + Pedersen-committed `btc_balance` / `btc_hodl_age`, each bound to a point-in-time chain snapshot (height/hash/time). Esplora (mempool.space / blockstream.info) provider. |
 
-> **Audit status:** built on the v3.2.0 security-hardening baseline (authenticated holder
+> 🔒 **4.0.0 — the security-hardening release.** On top of the v3.2.0 baseline (authenticated holder
 > presentations, fail-closed revocation, address-bound wallet binding, authenticated on-chain
-> anchors — see [Security](#security)). A subsequent multi-round hardening pass (**no Critical
-> findings**) made `Tessera.Cryptography` **constant-time** (limb-based arithmetic + a branchless
-> scalar multiplication, cross-checked against BouncyCastle), rejected non-canonical encodings, and
-> closed a set of verification / DID / source-plugin findings. It is still from-scratch managed code,
-> so an external crypto audit remains recommended. Threat model and known limitations:
-> [docs/security-audit-readiness.md](docs/security-audit-readiness.md).
+> anchors — see [Security](#security)), a multi-round audit (**no Critical findings**) made
+> `Tessera.Cryptography` **constant-time** (limb-based arithmetic + a branchless scalar
+> multiplication, cross-checked against an independent **BouncyCastle** oracle), rejected
+> non-canonical encodings, added controller-authenticated wallet binding, and **removed the legacy
+> duplicate crypto stack** (breaking). It is still from-scratch managed code, so an external crypto
+> audit remains recommended. Threat model, findings & limitations:
+> [docs/security-audit-readiness.md](docs/security-audit-readiness.md) ·
+> full changelog: [CHANGELOG.md](CHANGELOG.md).
 
 ## Repository layout
 
@@ -310,8 +312,9 @@ they upgrade.
 
 ## Security
 
-The current release (**3.3.1**) builds on the v3.2.0 security-hardening baseline. The
-guarantees that matter at the trust boundary:
+The current release (**4.0.0**) is the security-hardening release — constant-time cryptography,
+canonical encodings, controller-authenticated wallet binding, and removal of the legacy duplicate
+crypto stack — on top of the v3.2.0 baseline. The guarantees that matter at the trust boundary:
 
 - **Authenticated holder presentations.** A presentation carries the holder's controller
   public key (`PresentationBinding.HolderPublicKey`, 32-byte Ed25519) and a signature over a
