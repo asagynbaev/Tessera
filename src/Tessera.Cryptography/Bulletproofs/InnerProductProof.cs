@@ -154,8 +154,8 @@ namespace Tessera.Cryptography.Bulletproofs
             for (int i = 0; i < k; i++) { ls[i] = Point.Decode(data[offset..(offset + 33)]); offset += 33; }
             var rs = new Point[k];
             for (int i = 0; i < k; i++) { rs[i] = Point.Decode(data[offset..(offset + 33)]); offset += 33; }
-            var a = Scalar.FromBytes(data[offset..(offset + 32)]); offset += 32;
-            var b = Scalar.FromBytes(data[offset..(offset + 32)]);
+            var a = Scalar.FromCanonicalBytes(data[offset..(offset + 32)]); offset += 32;
+            var b = Scalar.FromCanonicalBytes(data[offset..(offset + 32)]);
             return new InnerProductProof(ls, rs, a, b);
         }
 

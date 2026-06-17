@@ -186,9 +186,9 @@ namespace Tessera.Cryptography.Bulletproofs
             var s = Point.Decode(data[offset..(offset + 33)]); offset += 33;
             var t1 = Point.Decode(data[offset..(offset + 33)]); offset += 33;
             var t2 = Point.Decode(data[offset..(offset + 33)]); offset += 33;
-            var tauX = Scalar.FromBytes(data[offset..(offset + 32)]); offset += 32;
-            var mu = Scalar.FromBytes(data[offset..(offset + 32)]); offset += 32;
-            var tHat = Scalar.FromBytes(data[offset..(offset + 32)]); offset += 32;
+            var tauX = Scalar.FromCanonicalBytes(data[offset..(offset + 32)]); offset += 32;
+            var mu = Scalar.FromCanonicalBytes(data[offset..(offset + 32)]); offset += 32;
+            var tHat = Scalar.FromCanonicalBytes(data[offset..(offset + 32)]); offset += 32;
             var ipaLen = BitConverter.ToInt32(data, offset); offset += 4;
             // The inner-product blob must consume exactly the rest of the buffer; reject any other
             // length before slicing/allocating (closes the same allocation-DoS at this layer).

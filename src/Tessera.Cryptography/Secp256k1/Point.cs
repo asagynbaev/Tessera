@@ -86,20 +86,86 @@ namespace Tessera.Cryptography.Secp256k1
         public static Point Negate(Point p)
             => p.IsInfinity ? Infinity : new Point(p.X, -p.Y, p.Z);
 
+        /// <summary>
+        /// Constant-time scalar multiplication (H-1): fixed 256-bit, MSB-first double-and-add-ALWAYS
+        /// with a branchless point select, over complete (branch-free) add/double formulas. The loop
+        /// length, the per-bit work, and all memory accesses are independent of the secret scalar, so
+        /// timing does not leak it. <c>k = 0</c> and an infinite <paramref name="p"/> both yield the
+        /// point at infinity, as before — no early return is needed (the ladder handles them).
+        /// </summary>
         public static Point ScalarMul(Point p, Scalar s)
         {
-            if (s.IsZero || p.IsInfinity) return Infinity;
+            var k = s.ToBytes(); // 32-byte big-endian
             var result = Infinity;
-            var current = p;
-            var k = s.Value;
-            while (k > BigInteger.Zero)
+            for (int i = 0; i < 256; i++)
             {
-                if (!k.IsEven) result = Add(result, current);
-                current = Double(current);
-                k >>= 1;
+                result = DoubleCt(result);
+                var added = AddCt(result, p);
+                ulong bit = (ulong)((k[i >> 3] >> (7 - (i & 7))) & 1);
+                result = Select(0UL - bit, added, result);
             }
             return result;
         }
+
+        /// <summary>Branch-free doubling: the Jacobian formula already yields Z=0 for the point at infinity.</summary>
+        private static Point DoubleCt(Point p)
+        {
+            var ySq = p.Y.Square();
+            var s = new FieldElement(4) * p.X * ySq;
+            var m = new FieldElement(3) * p.X.Square();
+            var x3 = m.Square() - s - s;
+            var y3 = m * (s - x3) - new FieldElement(8) * ySq.Square();
+            var z3 = new FieldElement(2) * p.Y * p.Z;
+            return new Point(x3, y3, z3);
+        }
+
+        /// <summary>
+        /// Branch-free addition covering every case (∞ operands, P==Q doubling, P==-Q → ∞): it computes
+        /// the generic sum and the doubling unconditionally and selects the correct one with
+        /// constant-time masks, so the running time does not depend on which case occurred.
+        /// </summary>
+        private static Point AddCt(Point p, Point q)
+        {
+            var z1sq = p.Z.Square();
+            var z2sq = q.Z.Square();
+            var u1 = p.X * z2sq;
+            var u2 = q.X * z1sq;
+            var s1 = p.Y * q.Z * z2sq;
+            var s2 = q.Y * p.Z * z1sq;
+
+            var h = u2 - u1;
+            var r = s2 - s1;
+            var hSq = h.Square();
+            var hCub = hSq * h;
+            var u1hSq = u1 * hSq;
+            var x3 = r.Square() - hCub - u1hSq - u1hSq;
+            var y3 = r * (u1hSq - x3) - s1 * hCub;
+            var z3 = h * p.Z * q.Z;
+            var generic = new Point(x3, y3, z3);
+
+            var dbl = DoubleCt(p);
+
+            ulong pInf = p.Z.CtIsZeroMask();
+            ulong qInf = q.Z.CtIsZeroMask();
+            ulong xEq = u1.CtEqMask(u2);
+            ulong yEq = s1.CtEqMask(s2);
+            ulong bothEq = xEq & yEq;  // P == Q  -> doubling
+            ulong negEq = xEq & ~yEq;  // P == -Q -> infinity
+
+            var res = generic;
+            res = Select(bothEq, dbl, res);
+            res = Select(negEq, Infinity, res);
+            res = Select(qInf, p, res);  // Q == ∞ -> P
+            res = Select(pInf, q, res);  // P == ∞ -> Q (last, so it wins when both are ∞)
+            return res;
+        }
+
+        /// <summary>Constant-time point select: <paramref name="ifMask"/> when mask is all-ones, else <paramref name="ifNot"/>.</summary>
+        private static Point Select(ulong mask, Point ifMask, Point ifNot)
+            => new(
+                FieldElement.CondSelect(mask, ifMask.X, ifNot.X),
+                FieldElement.CondSelect(mask, ifMask.Y, ifNot.Y),
+                FieldElement.CondSelect(mask, ifMask.Z, ifNot.Z));
 
         public static Point MultiScalarMul(Scalar[] scalars, Point[] points)
         {
@@ -131,7 +197,8 @@ namespace Tessera.Cryptography.Secp256k1
             byte prefix = bytes[0];
             if (prefix != 0x02 && prefix != 0x03)
                 throw new ArgumentException("Invalid compressed point prefix.", nameof(bytes));
-            var x = FieldElement.FromBytes(bytes.AsSpan(1, 32));
+            // Reject non-canonical x (x >= p): a point must have exactly one valid SEC1 encoding.
+            var x = FieldElement.FromCanonicalBytes(bytes.AsSpan(1, 32));
             var rhs = x * x * x + CurveB;
             var y = rhs.Sqrt();
             bool wantOdd = prefix == 0x03;
