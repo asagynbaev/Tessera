@@ -56,11 +56,13 @@ the `Sagynbaev.Tessera.Sdk` package); namespaces remain `Tessera.*`.
 | `Tessera.Sources.XRoad` | Layer-2 plugin: X-Road government registry → residency / property / encumbrance. |
 | `Tessera.Sources.Bitcoin` | Layer-2 plugin: proven control of Bitcoin addresses (BIP-137 signed challenge) → `btc_control` (address count only) + Pedersen-committed `btc_balance` / `btc_hodl_age`, each bound to a point-in-time chain snapshot (height/hash/time). Esplora (mempool.space / blockstream.info) provider. |
 
-> **Audit status:** the current release is **3.3.1**, built on the v3.2.0
-> security-hardening baseline (authenticated holder presentations, fail-closed revocation,
-> address-bound wallet binding, authenticated on-chain anchors — see [Security](#security)). `Tessera.Cryptography` remains a
-> from-scratch, **not constant-time** implementation pending external review; constant-time
-> `Point.ScalarMul` is deferred to that audit. Threat model and known limitations:
+> **Audit status:** built on the v3.2.0 security-hardening baseline (authenticated holder
+> presentations, fail-closed revocation, address-bound wallet binding, authenticated on-chain
+> anchors — see [Security](#security)). A subsequent multi-round hardening pass (**no Critical
+> findings**) made `Tessera.Cryptography` **constant-time** (limb-based arithmetic + a branchless
+> scalar multiplication, cross-checked against BouncyCastle), rejected non-canonical encodings, and
+> closed a set of verification / DID / source-plugin findings. It is still from-scratch managed code,
+> so an external crypto audit remains recommended. Threat model and known limitations:
 > [docs/security-audit-readiness.md](docs/security-audit-readiness.md).
 
 ## Repository layout
@@ -326,12 +328,22 @@ guarantees that matter at the trust boundary:
   the current epoch (it no longer silently skips when `ExpectedAnchorRoot` is supplied). A
   presentation freshness window (`MaxPresentationAge` / `MaxClockSkew`, both authenticated via
   the signed `CreatedAt`) bounds replay.
-- **Address-bound wallet binding.** Binding a wallet to a DID proves the bound address is
-  controlled by the wallet key via `IWalletControlVerifier` (the default covers Solana
-  base58(pubkey) and fails closed on chains it does not understand). `BuildWalletChallenge` binds
-  the wallet pubkey, binding nonces are single-use through an `INonceStore`, and
-  `DidService.GetActiveAsync` enforces revocation on resolve. Pepper providers reject all-zero /
+- **Address-bound, controller-authenticated wallet binding.** Binding a wallet to a DID proves the
+  bound address is controlled by the wallet key via `IWalletControlVerifier` (the default covers
+  Solana base58(pubkey) and fails closed on chains it does not understand). `BuildWalletChallenge`
+  binds the wallet pubkey, and binding nonces are single-use through an `INonceStore`. The
+  authenticated `BindWalletAsync` overload additionally requires a DID-**controller** signature over
+  `BuildWalletBindAuthChallenge`, so a wallet owner cannot attach their wallet to another principal's
+  DID. `DidService.GetActiveAsync` enforces revocation on resolve; pepper providers reject all-zero /
   low-entropy peppers.
+- **Constant-time, malleability-resistant primitives.** `Tessera.Cryptography` secp256k1 is
+  constant-time (fixed 4×64-bit limb arithmetic; a fixed-iteration, branchless `Point.ScalarMul`
+  over complete add/double formulas), so the secret scalar does not leak through timing. Point and
+  proof-scalar deserialization rejects non-canonical encodings (`x ≥ p`, `s ≥ n`) rather than
+  reducing them, closing byte-malleability of commitments/proofs. Both are cross-checked against an
+  independent BouncyCastle oracle. The issuer registry refuses to overwrite an existing issuer's
+  public key, and attestation verification supports an expiry cap (`MaxAttestationAge` /
+  `RequireExpiry`).
 - **Source ↔ DID binding.** Sumsub KYC requires the applicant `externalUserId` to equal the
   subject DID; X-Road uses server-asserted identifiers verified against the request. Both clients
   require HTTPS.
@@ -350,9 +362,10 @@ guarantees that matter at the trust boundary:
   sealed-bid auction enforces both bounds; the confidential transfer checks Pedersen balance
   conservation (`amount + change == sender balance`) in addition to the range proofs.
 
-Caveats: `Tessera.Cryptography` is still **not constant-time** — constant-time `Point.ScalarMul`
-and a type-tagged claim-canonicalization wire format are deferred to the planned external
-cryptography audit (claim canonicalization is already culture-invariant). The Anchor (Solana),
+Caveats: `Tessera.Cryptography` is now **constant-time** and rejects non-canonical encodings, but it
+is still from-scratch managed code — an external cryptography audit remains recommended, and two
+BREAKING wire-format hardening items (length-prefixed Fiat–Shamir transcript labels; RFC-6962 Merkle
+odd-node handling) plus a type-tagged claim-canonicalization format are deferred. The Anchor (Solana),
 Aiken (Cardano) and Solidity (EVM) contract changes above are source-level: they require the
 respective toolchain build (`anchor build` / `aiken build` + regenerated `plutus.json` / Hardhat
 compile) and redeploy to take effect on a live network. See
@@ -364,8 +377,9 @@ Planned, not yet shipped:
 
 - **Cardano mainnet** — the preprod path is live today (see the [Chains](#chains) table);
   mainnet is the next step.
-- **External security audit of `Tessera.Cryptography`** — the audit dossier is already public
-  in [docs/security-audit-readiness.md](docs/security-audit-readiness.md).
+- **External security audit of `Tessera.Cryptography`** — now constant-time and BouncyCastle
+  cross-checked, but still self-implemented; the audit dossier is already public in
+  [docs/security-audit-readiness.md](docs/security-audit-readiness.md).
 - **Native Midnight integration** — a zkSNARK stack with selective disclosure on Midnight.
   Does not exist today.
 
