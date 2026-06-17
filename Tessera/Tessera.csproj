@@ -4,6 +4,10 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <!-- Pure meta-package: ships ONLY the sub-package dependencies below, no compiled source. The
+         legacy Tessera.Crypto / Tessera.Security duplicate of Tessera.Cryptography (a second,
+         variable-time secp256k1/Bulletproofs stack) has been removed; this guard keeps it gone. -->
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <!-- "Tessera" / "Tessera.*" IDs are owned by other authors on nuget.org; publish under the
          owner-scoped, reservable "Sagynbaev." prefix. AssemblyName stays "Tessera". Version is
          supplied by the publish workflow (-p:Version / -p:PackageVersion from the git tag). -->
@@ -19,7 +23,7 @@
     <Authors>Azimbek Sagynbaev</Authors>
     <Description>Privacy-preserving identity and reputation infrastructure for .NET. DIDs, attestations, selective disclosure via Merkle bundles, and Bulletproof predicate proofs over committed values. v3 meta-package — references Tessera.Core, Tessera.Did, Tessera.Attestations, Tessera.Cryptography, Tessera.Chains.Abstractions.</Description>
     <PackageTags>did;decentralized-identity;verifiable-credentials;attestations;selective-disclosure;identity;reputation;privacy;bulletproofs;zero-knowledge-proof;pedersen-commitment;range-proof;secp256k1;solana;stellar;dotnet</PackageTags>
-    <PackageReleaseNotes>v3.0.0 (breaking): Split into focused packages. Added DID layer (Tessera.Did), generic attestations with Merkle bundling (Tessera.Attestations), Bulletproofs library (Tessera.Cryptography), chain-agnostic anchor interface (Tessera.Chains.Abstractions), Solana and Stellar adapters. Removed HMAC Zkp class and IBlockchain interface.</PackageReleaseNotes>
+    <PackageReleaseNotes>v3.0.0 (breaking): Split into focused packages. Added DID layer (Tessera.Did), generic attestations with Merkle bundling (Tessera.Attestations), Bulletproofs library (Tessera.Cryptography), chain-agnostic anchor interface (Tessera.Chains.Abstractions), Solana and Stellar adapters. Removed HMAC Zkp class and IBlockchain interface. (breaking) Removed the legacy Tessera.Crypto / Tessera.Security duplicate crypto stack that this meta-package still shipped alongside Tessera.Cryptography — use Tessera.Cryptography (Pedersen / Bulletproofs / secp256k1) directly.</PackageReleaseNotes>
   </PropertyGroup>
 
   <ItemGroup>
