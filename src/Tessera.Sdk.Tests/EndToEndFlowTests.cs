@@ -270,6 +270,46 @@ public class EndToEndFlowTests
             }));
     }
 
+    [Fact]
+    public async Task Verifier_StaleCachedRoot_VsLiveAnchor_Fails()
+    {
+        // TOCTOU: a cached ExpectedAnchorRoot must not be trusted when a live anchor disagrees — a
+        // root rotation that removed an attestation does NOT bump the revocation epoch, so the stale
+        // root would otherwise still verify a presentation of the since-removed attestation.
+        var (holder, holderPriv, chain, issuer, registry, verifier) = await BuildPair();
+        holder.AcceptAttestation(issuer.Issue("phone_verified", holder.Did, new AttestationPayload { Method = "x" }));
+        await holder.AnchorRootAsync();
+        var staleRoot = holder.CurrentRoot; // R1, cached by the verifier
+
+        var verifierDid = new DidId("did:tessera:app");
+        var presentation = holder.BuildSignedPresentation(
+            verifier: verifierDid,
+            attestationTypes: new[] { "phone_verified" },
+            sessionNonce: RandomBytes(16),
+            asOfRevocationEpoch: 0,
+            chain: "test",
+            signChallenge: ch => Ed25519.Sign(holderPriv, ch.Span));
+
+        // Anchored root rotates to R2 (!= R1) WITHOUT bumping the epoch.
+        await chain.AnchorRootAsync(holder.Did, new byte[32]);
+
+        var zkpVerifier = new Verifier(new VerifierOptions
+        {
+            IssuerRegistry = registry,
+            SignatureVerifier = verifier,
+            ChainAnchor = chain,
+        });
+
+        var result = await zkpVerifier.VerifyPresentationAsync(presentation, new VerificationPolicy
+        {
+            ExpectedVerifier = verifierDid,
+            ExpectedAnchorRoot = staleRoot, // cached R1, but the live anchor now holds R2
+        });
+
+        Assert.False(result.Valid);
+        Assert.Equal("anchor_root_stale", result.Reason);
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────
 
     private record FlowFixture(

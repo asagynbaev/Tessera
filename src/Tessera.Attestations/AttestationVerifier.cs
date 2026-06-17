@@ -61,6 +61,8 @@ public sealed class AttestationVerifier
         if (string.IsNullOrEmpty(a.Schema)) return VerificationResult.Fail("missing_schema");
         if (a.Signature is null || a.Signature.Value.Length == 0)
             return VerificationResult.Fail("missing_signature");
+        if (string.IsNullOrWhiteSpace(a.Signature.Algorithm))
+            return VerificationResult.Fail("missing_algorithm");
 
         var now = _clock.GetUtcNow();
         if (_requireExpiry && a.ExpiresAt is null)
@@ -76,7 +78,9 @@ public sealed class AttestationVerifier
         var issuer = await _issuers.ResolveAsync(a.Issuer, ct).ConfigureAwait(false);
         if (issuer is null) return VerificationResult.Fail("unknown_issuer");
         if (!issuer.Active) return VerificationResult.Fail("issuer_inactive");
-        if (!string.Equals(issuer.Algorithm, a.Signature.Algorithm, StringComparison.Ordinal))
+        // Case-insensitive: the algorithm tag is metadata (NOT part of the signed canonical input),
+        // so "Ed25519"/"ed25519" must not silently reject an otherwise-valid issuer's attestations.
+        if (!string.Equals(issuer.Algorithm, a.Signature.Algorithm, StringComparison.OrdinalIgnoreCase))
             return VerificationResult.Fail("algorithm_mismatch");
 
         var input = AttestationCanonical.BuildSigningInput(a);

@@ -87,7 +87,15 @@ public sealed class Verifier
 
         byte[] expectedRoot;
         if (policy.ExpectedAnchorRoot is { } caller)
+        {
+            // A caller-supplied (cached/offline) root is honoured, but when a live anchor is ALSO
+            // reachable it must match it. A root rotation that removed an attestation does NOT bump
+            // the revocation epoch, so a stale cached root would otherwise still verify a presentation
+            // of a since-removed attestation (use-after-removal / TOCTOU).
+            if (state is not null && !caller.AsSpan().SequenceEqual(state.AttestationRoot))
+                return new VerificationResult { Valid = false, Reason = "anchor_root_stale" };
             expectedRoot = caller;
+        }
         else if (state is not null)
             expectedRoot = state.AttestationRoot;
         else if (_options.ChainAnchor is null)

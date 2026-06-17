@@ -147,6 +147,17 @@ public class AttestationTests
         Assert.Equal("expired", result.Reason);
     }
 
+    [Fact]
+    public async Task Verify_AlgorithmTag_IsCaseInsensitive()
+    {
+        // Issuer registered as "ED25519"; signature tag is the canonical lowercase "ed25519". The tag
+        // is metadata (not part of the signed canonical input), so a case difference must NOT reject.
+        var (_, issuer, verifier, _) = BuildPair(algorithm: "ED25519");
+        var att = issuer.Issue("human_verified", new DidId("did:tessera:s"), new AttestationPayload { Method = "civic" });
+        var result = await verifier.VerifyAsync(att);
+        Assert.True(result.Valid, result.Reason);
+    }
+
     private static (AttestationIssuer issuer, AttestationVerifier verifier) BuildPairWithOptions(
         TimeSpan? maxAge = null, bool requireExpiry = false)
     {
