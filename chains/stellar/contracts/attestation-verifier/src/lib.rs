@@ -1,4 +1,8 @@
 #![no_std]
+// soroban-sdk 26.1 deprecated `Events::publish` in favour of the `#[contractevent]` macro.
+// This v2-era contract keeps its existing events (migrating changes the on-chain event ABI that
+// v2.x consumers depend on); the lint is suppressed deliberately.
+#![allow(deprecated)]
 //! # ZKP / Attestation Verifier Contract
 //!
 //! Production-ready Soroban smart contract for verifying attestation proofs issued

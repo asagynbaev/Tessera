@@ -33,7 +33,7 @@ fn issuer_public_key(env: &Env) -> BytesN<32> {
 
 /// Registers the contract, initializes it with an admin, and sets the trusted issuer key.
 /// Returns the typed client. Auth is mocked so `require_auth` succeeds in tests.
-fn setup(env: &Env) -> ZkpVerifierClient {
+fn setup(env: &Env) -> ZkpVerifierClient<'_> {
     env.mock_all_auths();
     let contract_id = env.register(ZkpVerifier, ());
     let client = ZkpVerifierClient::new(env, &contract_id);

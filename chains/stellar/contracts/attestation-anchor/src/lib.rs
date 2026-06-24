@@ -1,4 +1,8 @@
 #![no_std]
+// soroban-sdk 26.1 deprecated `Events::publish` in favour of the `#[contractevent]` macro.
+// We keep the existing event emission (migrating changes the on-chain event ABI and would
+// require redeploying this already-deployed contract); the lint is suppressed deliberately.
+#![allow(deprecated)]
 //! # AttestationAnchor
 //!
 //! Soroban DID anchor for the Tessera identity layer — the Stellar counterpart of the

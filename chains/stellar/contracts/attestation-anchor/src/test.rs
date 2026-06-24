@@ -7,9 +7,9 @@
 //! different account) is still enforced by the contract's explicit check.
 
 use crate::{AnchorError, AttestationAnchor, AttestationAnchorClient};
-use soroban_sdk::{testutils::Address as _, Address, BytesN, Env};
+use soroban_sdk::{testutils::Address as _, Address, BytesN, Env, Error};
 
-fn setup(env: &Env) -> AttestationAnchorClient {
+fn setup(env: &Env) -> AttestationAnchorClient<'_> {
     env.mock_all_auths();
     let contract_id = env.register(AttestationAnchor, ());
     AttestationAnchorClient::new(env, &contract_id)
@@ -86,8 +86,10 @@ fn anchor_root_by_different_owner_traps() {
 
     // mock_all_auths lets the attacker's require_auth pass; the explicit owner check
     // is what rejects the squat.
+    // anchor_root returns (), not Result<…, AnchorError>, and fails via panic_with_error!, so the
+    // try_ client surfaces the generic soroban Error (from the contract-error code), not the enum.
     let err = client.try_anchor_root(&attacker, &did, &root(&env, 2));
-    assert_eq!(err, Err(Ok(AnchorError::NotOwner)));
+    assert_eq!(err, Err(Ok(Error::from(AnchorError::NotOwner))));
 }
 
 #[test]
@@ -95,5 +97,5 @@ fn bump_revocation_unknown_did_traps() {
     let env = Env::default();
     let client = setup(&env);
     let err = client.try_bump_revocation(&did_hash(&env, 5), &1);
-    assert_eq!(err, Err(Ok(AnchorError::AnchorNotFound)));
+    assert_eq!(err, Err(Ok(Error::from(AnchorError::AnchorNotFound))));
 }
