@@ -22,6 +22,7 @@ public class EvmAllowlistSmokeTests
             ChainId = config.ChainId,
             ContractAddress = allowlistAddr!,
             PrivateKey = config.PrivateKey,
+            UseLegacyGasPricing = config.UseLegacyGas,
         });
 
         // A throwaway target address (not the signer) we can freely flip.

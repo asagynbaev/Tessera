@@ -54,6 +54,9 @@ public class CardanoPreprodSmokeTests
         var did = NewRandomDid();
 
         await anchor.AnchorRootAsync(did, RandomBytes(32));
+        // Wait until the registration is indexed before bumping — bump must spend the anchor UTxO, and
+        // the provider's UTxO index lags confirmation (same pattern as IsRevokedSince_TracksEpoch).
+        await EventuallyAsync(() => anchor.GetAnchorAsync(did), s => s is not null);
         await anchor.BumpRevocationAsync(did, RevocationReason.KeyRotation);
 
         var state = await EventuallyAsync(() => anchor.GetAnchorAsync(did), s => s?.RevocationEpoch == 1);

@@ -97,6 +97,7 @@ public class EvmTestnetSmokeTests
             ChainId = config.ChainId,
             ContractAddress = config.ContractAddress,
             PrivateKey = config.PrivateKey,
+            UseLegacyGasPricing = config.UseLegacyGas,
         });
     }
 

@@ -85,13 +85,15 @@ public sealed class CardanoChainAnchor : IChainAnchor, IDisposable
             return await SubmitAndConfirmAsync(await MetadataBuilder().BuildAsync(didHash, root, epoch, ct).ConfigureAwait(false), ct).ConfigureAwait(false);
         }
 
-        var utxo = await FindAnchorUtxoAsync(didHash, ct).ConfigureAwait(false)
-            ?? throw new InvalidOperationException($"No anchor exists for {did} — register a root before bumping revocation.");
-        var state = DatumCodec.DecodeAnchorDatum(utxo.InlineDatumCbor
-            ?? throw new InvalidOperationException("Anchor UTxO is missing its inline datum."));
-        var next = state with { RevocationEpoch = state.RevocationEpoch + 1 };
-        var built = await AnchorBuilder().BuildSpendAsync(utxo, DatumCodec.BumpRevocationRedeemer((int)reason), next, didHash, ct).ConfigureAwait(false);
-        return await SubmitAndConfirmAsync(built, ct).ConfigureAwait(false);
+        return await BuildSubmitConfirmWithRetryAsync(async token =>
+        {
+            var utxo = await FindAnchorUtxoAsync(didHash, token).ConfigureAwait(false)
+                ?? throw new InvalidOperationException($"No anchor exists for {did} — register a root before bumping revocation.");
+            var state = DatumCodec.DecodeAnchorDatum(utxo.InlineDatumCbor
+                ?? throw new InvalidOperationException("Anchor UTxO is missing its inline datum."));
+            var next = state with { RevocationEpoch = state.RevocationEpoch + 1 };
+            return await AnchorBuilder().BuildSpendAsync(utxo, DatumCodec.BumpRevocationRedeemer((int)reason), next, didHash, token).ConfigureAwait(false);
+        }, ct).ConfigureAwait(false);
     }
 
     public async Task<bool> IsRevokedSinceAsync(DidId did, ulong asOfEpoch, CancellationToken ct = default)
@@ -134,25 +136,23 @@ public sealed class CardanoChainAnchor : IChainAnchor, IDisposable
 
     // ── Validator mode ───────────────────────────────────────────────────────────
 
-    private async Task<AnchorTxResult> ValidatorAnchorAsync(DidId did, byte[] root, CancellationToken ct)
+    private Task<AnchorTxResult> ValidatorAnchorAsync(DidId did, byte[] root, CancellationToken ct)
     {
         var didHash = DidHash.Compute(did);
-        var existing = await FindAnchorUtxoAsync(didHash, ct).ConfigureAwait(false);
-        var builder = AnchorBuilder();
+        // The build delegate re-reads chain state on every attempt so a rebuild after stale-UTxO
+        // contention (see BuildSubmitConfirmWithRetryAsync) decides register-vs-spend from fresh state.
+        return BuildSubmitConfirmWithRetryAsync(async token =>
+        {
+            var existing = await FindAnchorUtxoAsync(didHash, token).ConfigureAwait(false);
+            var builder = AnchorBuilder();
+            if (existing is null)
+                return await builder.BuildRegisterAsync(didHash, root, token).ConfigureAwait(false);
 
-        BuiltTx built;
-        if (existing is null)
-        {
-            built = await builder.BuildRegisterAsync(didHash, root, ct).ConfigureAwait(false);
-        }
-        else
-        {
             var state = DatumCodec.DecodeAnchorDatum(existing.InlineDatumCbor
                 ?? throw new InvalidOperationException("Anchor UTxO is missing its inline datum."));
             var next = state with { AttestationRoot = root };
-            built = await builder.BuildSpendAsync(existing, DatumCodec.UpdateRootRedeemer(root), next, didHash, ct).ConfigureAwait(false);
-        }
-        return await SubmitAndConfirmAsync(built, ct).ConfigureAwait(false);
+            return await builder.BuildSpendAsync(existing, DatumCodec.UpdateRootRedeemer(root), next, didHash, token).ConfigureAwait(false);
+        }, ct);
     }
 
     private async Task<AnchorState?> ReadValidatorAsync(DidId did, byte[] didHash, CancellationToken ct)
@@ -270,9 +270,49 @@ public sealed class CardanoChainAnchor : IChainAnchor, IDisposable
 
     // ── submit + confirm ───────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Build → submit → confirm with bounded rebuild on stale-UTxO contention. Right after a
+    /// confirmed write the provider's address-UTxO index lags the ledger, so a back-to-back write can
+    /// select an already-spent input and the node rejects it ("BadInputsUTxO" / "inputs are spent").
+    /// Because <see cref="ICardanoProvider.SubmitAsync"/> throws (no tx hash) on rejection, the rejected
+    /// transaction never entered the chain, so it is safe to wait for the index to settle, rebuild
+    /// against fresh state via <paramref name="build"/>, and resubmit. The build is re-run each attempt
+    /// so register-vs-spend and the spent UTxO are re-derived from current chain state.
+    /// </summary>
+    private async Task<AnchorTxResult> BuildSubmitConfirmWithRetryAsync(
+        Func<CancellationToken, Task<BuiltTx>> build, CancellationToken ct)
+    {
+        const int maxAttempts = 5;
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            var built = await build(ct).ConfigureAwait(false);
+            try
+            {
+                return await SubmitAndConfirmAsync(built, ct).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException ex) when (attempt < maxAttempts && IsStaleUtxoError(ex))
+            {
+                await Task.Delay(_options.ConfirmationPollInterval, ct).ConfigureAwait(false);
+            }
+        }
+
+        // Unreachable: the final attempt does not match the catch filter, so its exception propagates.
+        throw new InvalidOperationException("Retry loop exhausted without submitting.");
+    }
+
+    /// <summary>True for submit rejections caused by an input that was already spent (provider lag).</summary>
+    private static bool IsStaleUtxoError(Exception ex)
+    {
+        var m = ex.Message;
+        return m.Contains("BadInputsUTxO", StringComparison.OrdinalIgnoreCase)
+            || m.Contains("inputs are spent", StringComparison.OrdinalIgnoreCase)
+            || m.Contains("ValueNotConservedUTxO", StringComparison.OrdinalIgnoreCase)
+            || m.Contains("already been included", StringComparison.OrdinalIgnoreCase);
+    }
+
     private async Task<AnchorTxResult> SubmitAndConfirmAsync(BuiltTx built, CancellationToken ct)
     {
-        // Single-shot submit (never auto-retried).
+        // Single-shot submit (never auto-retried here; contention retry lives in the caller).
         var txHash = await _provider.SubmitAsync(built.Cbor, ct).ConfigureAwait(false);
         var submittedAt = _clock.GetUtcNow();
 

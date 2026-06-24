@@ -12,6 +12,8 @@ namespace Tessera.Chains.Evm.Tests.Smoke;
 ///   <item><c>TESSERA_EVM_KEY</c>: deployer/owner private key (hex, 0x optional), funded for gas</item>
 ///   <item><c>TESSERA_EVM_REGISTRY</c>: deployed IdentityRegistry contract address (0x-hex)</item>
 ///   <item><c>TESSERA_EVM_CHAINID</c>: EIP-155 chain id (e.g. 97 for BNB testnet)</item>
+///   <item><c>TESSERA_EVM_LEGACY_GAS</c> (optional): "1"/"true" to force legacy gas pricing.
+///         Auto-enabled for BNB Chain (56/97), which rejects zero-priority-fee 1559 txs.</item>
 /// </list>
 /// </remarks>
 internal sealed class EvmTestnetConfig
@@ -20,6 +22,7 @@ internal sealed class EvmTestnetConfig
     public required string PrivateKey { get; init; }
     public required string ContractAddress { get; init; }
     public required long ChainId { get; init; }
+    public required bool UseLegacyGas { get; init; }
 
     public static bool TryLoad(out EvmTestnetConfig? config, out string missingReason)
     {
@@ -53,12 +56,18 @@ internal sealed class EvmTestnetConfig
             return false;
         }
 
+        var legacyRaw = Environment.GetEnvironmentVariable("TESSERA_EVM_LEGACY_GAS");
+        var legacy = legacyRaw is null
+            ? chainId is 56 or 97   // BNB Chain mainnet/testnet reject zero-tip 1559 txs
+            : legacyRaw.Trim() is "1" or "true" or "TRUE" or "True";
+
         config = new EvmTestnetConfig
         {
             RpcUrl = rpc.Trim(),
             PrivateKey = key.Trim(),
             ContractAddress = registry.Trim(),
             ChainId = chainId,
+            UseLegacyGas = legacy,
         };
         missingReason = "";
         return true;

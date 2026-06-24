@@ -51,6 +51,12 @@ public sealed record EvmAllowlistGatewayOptions
     /// <summary>Optional fixed gas limit for writes. Null = estimate.</summary>
     public BigInteger? GasLimit { get; init; }
 
+    /// <summary>
+    /// Send legacy (type-0) transactions priced via <c>eth_gasPrice</c> instead of EIP-1559.
+    /// Required on chains that reject a zero priority fee (notably BNB Chain). Default false (1559).
+    /// </summary>
+    public bool UseLegacyGasPricing { get; init; }
+
     public EvmRetryPolicy Retry { get; init; } = EvmRetryPolicy.Default;
 
     public string EffectiveChainTag => ChainTag ?? $"evm:{ChainId}";

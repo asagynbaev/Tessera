@@ -1,5 +1,6 @@
 using Nethereum.Contracts;
 using Nethereum.Hex.HexTypes;
+using Nethereum.RPC.NonceServices;
 using Nethereum.Util;
 using Nethereum.Web3;
 using Nethereum.Web3.Accounts;
@@ -25,6 +26,7 @@ public sealed class EvmAllowlistGateway : IAllowlistGateway
     private readonly string _chainTag;
     private readonly EvmAllowlistGatewayOptions _o;
     private readonly Contract _contract;
+    private readonly IWeb3 _web3;
 
     public EvmAllowlistGateway(EvmAllowlistGatewayOptions options)
     {
@@ -37,20 +39,24 @@ public sealed class EvmAllowlistGateway : IAllowlistGateway
         if (options.ChainId <= 0) throw new ArgumentException("ChainId must be positive.", nameof(options));
 
         var account = new Account(options.PrivateKey, options.ChainId);
-        var web3 = new Web3(account, options.RpcUrl);
+        _web3 = new Web3(account, options.RpcUrl);
+        // Local monotonic nonce tracking — see EvmChainAnchor for why a node-read pending nonce
+        // is unreliable for back-to-back writes on load-balanced public RPCs.
+        account.NonceService = new InMemoryNonceService(account.Address, _web3.Client);
         _from = account.Address;
         _chainTag = options.EffectiveChainTag;
         _o = options;
-        _contract = web3.Eth.GetContract(BuildAbi(options), options.ContractAddress);
+        _contract = _web3.Eth.GetContract(BuildAbi(options), options.ContractAddress);
     }
 
     /// <summary>Advanced/testing constructor: inject a pre-built <see cref="IWeb3"/> and signer address.</summary>
     internal EvmAllowlistGateway(IWeb3 web3, string fromAddress, EvmAllowlistGatewayOptions options)
     {
         _o = options ?? throw new ArgumentNullException(nameof(options));
+        _web3 = web3 ?? throw new ArgumentNullException(nameof(web3));
         _from = fromAddress ?? throw new ArgumentNullException(nameof(fromAddress));
         _chainTag = options.EffectiveChainTag;
-        _contract = web3.Eth.GetContract(BuildAbi(options), options.ContractAddress);
+        _contract = _web3.Eth.GetContract(BuildAbi(options), options.ContractAddress);
     }
 
     public string ChainId => _chainTag;
@@ -100,7 +106,10 @@ public sealed class EvmAllowlistGateway : IAllowlistGateway
         {
             try
             {
-                gas = await fn.EstimateGasAsync(_from, null, null, args).ConfigureAwait(false);
+                var estimate = await fn.EstimateGasAsync(_from, null, null, args).ConfigureAwait(false);
+                // Buffer the estimate: a bare lower bound can run out of gas when real execution costs
+                // marginally more than the simulation (replica lag, refund accounting). See EvmTx.
+                gas = new HexBigInteger(EvmTx.WithGasBuffer(estimate.Value));
             }
             catch (Exception ex)
             {
@@ -111,7 +120,12 @@ public sealed class EvmAllowlistGateway : IAllowlistGateway
         }
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var receipt = await fn.SendTransactionAndWaitForReceiptAsync(_from, gas, new HexBigInteger(0), cts, args).ConfigureAwait(false);
+        // BNB Chain (and some others) reject 1559 txs with a zero priority fee; pin an explicit
+        // legacy gas price so this is sent as a type-0 transaction.
+        var value = new HexBigInteger(0);
+        var receipt = _o.UseLegacyGasPricing
+            ? await fn.SendTransactionAndWaitForReceiptAsync(_from, gas, await _web3.Eth.GasPrice.SendRequestAsync().ConfigureAwait(false), value, cts, args).ConfigureAwait(false)
+            : await fn.SendTransactionAndWaitForReceiptAsync(_from, gas, value, cts, args).ConfigureAwait(false);
 
         // A mined-but-reverted allow/revoke would otherwise return silently (Nethereum does not throw
         // on status 0 here). Assert success so a failed list mutation never looks like it took effect.

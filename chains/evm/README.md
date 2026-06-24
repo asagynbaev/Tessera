@@ -81,8 +81,37 @@ export TESSERA_EVM_KEY=<deployer-privkey> # funded account
 npm run deploy:bnbtestnet
 ```
 
-The deployer becomes the initial issuer-registry authority unless
-`TESSERA_EVM_AUTHORITY` overrides it.
+`deploy.js` deploys **both** `IdentityRegistry` + `Allowlist` (the deployer becomes the
+registry authority and the allowlist owner/agent — `TESSERA_EVM_AUTHORITY` overrides the
+authority), writes their addresses to `deployed.<network>.json`, and prints ready-to-source
+`export TESSERA_EVM_*` lines for the testnet smoke suite below. Record the deployed
+addresses + a couple of tx hashes the way `chains/solana/DEPLOYMENT.md` does.
+
+## Testnet smoke tests (C# adapter ↔ a public testnet)
+
+Same suite as the local smoke below, pointed at a real testnet (e.g. BNB Chain testnet,
+chainId 97). You need a **funded** key — grab test BNB from the
+[BNB testnet faucet](https://www.bnbchain.org/en/testnet-faucet):
+
+```bash
+cd chains/evm
+npm ci && npx hardhat compile
+export TESSERA_EVM_RPC=https://data-seed-prebsc-1-s1.bnbchain.org:8545
+export TESSERA_EVM_KEY=<your funded testnet key>
+npm run deploy:bnbtestnet                  # deploys both, prints the export lines below
+# paste the printed TESSERA_EVM_{CHAINID,REGISTRY,ALLOWLIST} exports, then:
+dotnet test ../../src/Tessera.Chains.Evm.Tests -c Release   # EvmTestnetSmokeTests run live
+```
+
+> **Verified on BNB testnet (chainId 97).** Full `EvmTestnetSmokeTests` + `EvmAllowlistSmokeTests`
+> suite passed live (6/6): `IdentityRegistry` `0xc84D91fD19368886C0b86C8A55DE5c981Cdd31cf`,
+> `Allowlist` `0x7c1FA4a2711A333D198FC1FC834a783567DF08DF`.
+>
+> **BNB-specific gas notes** (handled automatically by the adapter): BNB Chain rejects EIP-1559
+> transactions with a zero priority fee, so the adapter sends **legacy** (type-0) transactions on
+> chainIds 56/97 (`EvmChainAnchorOptions.UseLegacyGasPricing`, auto-set by the smoke config). It
+> also buffers gas estimates by 1.5× — a bare estimate can run out of gas when public-RPC
+> read-after-write lag makes the simulated cost lower than the real one.
 
 ## Local smoke tests (C# adapter ↔ a real chain)
 

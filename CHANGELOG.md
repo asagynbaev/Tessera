@@ -2,6 +2,39 @@
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-06-24
+
+> 🌐 **All four chain anchors are now validated live on public testnets** — the full adapter ↔
+> on-chain smoke suite (register / update-root / bump-revocation / reads) passes against a deployed
+> anchor on each, not just local nodes: **Solana** devnet (5/5), **EVM** BNB testnet (6/6),
+> **Cardano** preprod (5/5), **Stellar** testnet (5/5).
+
+### Added
+
+- **Stellar anchor is feature-complete.** New `attestation-anchor` Soroban contract (`anchor_root` /
+  `bump_revocation` / `get_anchor`, mirroring the Solana/EVM data model) and a fully-wired
+  `StellarChainAnchor` (simulate → assemble → sign → send → confirm for writes; simulation for reads)
+  with env-gated testnet smoke tests. Replaces the previous scaffold that threw `NotImplementedException`.
+- **EVM `deploy.js` now deploys both `IdentityRegistry` + `Allowlist`** and writes `deployed.<network>.json`,
+  so the testnet smoke suite (anchor + allowlist) runs from one deploy.
+
+### Fixed
+
+- **EVM writes work on BNB Chain.** Added legacy (type-0) gas pricing (auto-enabled for chainId 56/97,
+  which reject zero-priority-fee EIP-1559 txs) and a 1.5× buffer on gas estimates (a bare estimate can
+  run out of gas under public-RPC read-after-write lag). Also pins a local monotonic nonce for
+  back-to-back writes. `EvmChainAnchorOptions.UseLegacyGasPricing`.
+- **Cardano back-to-back writes survive provider lag.** The adapter now rebuilds against fresh UTxOs and
+  resubmits when a write hits an already-spent input (Blockfrost's address-UTxO index lags confirmation).
+
+### Changed
+
+- **`StellarChainAnchor` now takes a `StellarAnchorOptions`** (RPC URL, contract id, signing-key seed,
+  network passphrase) instead of the previous positional constructor. This replaces the v4.0.0 *scaffold*
+  constructor — which could not anchor (all writes threw `NotImplementedException`) and took only a public
+  source-account id with no signing key — so it is treated as completing a non-functional surface rather
+  than a breaking API change. Any caller of the old constructor switches to the options object.
+
 ## [4.0.0] - 2026-06-17
 
 > 🔒 **The security-hardening release.** A multi-round security audit — cryptography, on-chain

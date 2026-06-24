@@ -5,7 +5,9 @@ other backends — a Compact contract storing `(did_hash → attestation_root, r
 nothing else, with all proof verification staying off-chain in C#. **The Compact contract and the
 Midnight transaction layer are pending; Midnight mainnet is live, this integration is roadmap.**
 
-This matches the honesty level of the Stellar scaffold: the adapter does not pretend to anchor.
+It is deliberately honest: the adapter does not pretend to anchor (reads report "no anchor",
+writes throw) rather than silently no-op. Midnight is the **only** remaining scaffold — the Solana,
+EVM, Cardano, and Stellar adapters are all complete and validated live on their public testnets.
 
 | Member | Behaviour today |
 |---|---|

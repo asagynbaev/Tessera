@@ -1,3 +1,4 @@
+using System.Numerics;
 using Nethereum.Hex.HexTypes;
 
 namespace Tessera.Chains.Evm.Internal;
@@ -7,6 +8,14 @@ namespace Tessera.Chains.Evm.Internal;
 /// </summary>
 internal static class EvmTx
 {
+    /// <summary>
+    /// Apply a safety margin to an <c>eth_estimateGas</c> result. The estimate is a lower bound;
+    /// the real execution can cost marginally more (read-after-write replica lag on public RPCs,
+    /// refund/warm-slot accounting), which otherwise surfaces as a status-0 out-of-gas revert.
+    /// 1.5× is the common margin and is free on success — gas is billed on <c>gasUsed</c>, not the limit.
+    /// </summary>
+    public static BigInteger WithGasBuffer(BigInteger estimate) => estimate * 3 / 2;
+
     /// <summary>
     /// Assert that a mined transaction actually succeeded.
     /// </summary>

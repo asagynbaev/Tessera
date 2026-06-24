@@ -48,11 +48,11 @@ jobs:
         with:
           targets: wasm32v1-none
 
-      - name: Build attestation-verifier WASM (release)
-        run: cargo build --target wasm32v1-none --release -p attestation-verifier
+      - name: Build Soroban contracts WASM (release)
+        run: cargo build --target wasm32v1-none --release --workspace
 
       - name: Run Rust contract tests
-        run: cargo test -p attestation-verifier
+        run: cargo test --workspace
 
   evm-contract:
     runs-on: ubuntu-latest

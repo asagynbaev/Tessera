@@ -6,6 +6,11 @@ network and the script address change between Cardano networks. If you only need
 a working backend *today*, the [Solana](../../docs/deploying-solana.md) and EVM
 adapters are also complete.
 
+> **Verified on preprod.** The full `CardanoPreprodSmokeTests` suite has been run live
+> against preprod (register / update-root / bump-revocation / reads), passing 5/5. The one
+> setup gotcha that bites everyone — the faucet funds a single UTxO but Plutus needs two — is
+> called out in Step 3.
+
 > Unlike Solana (where the program is deployed once to a program id), a Plutus
 > validator is **not** "deployed" to a fixed address by an admin. Its script
 > address is a deterministic function of the compiled code. You simply build the
@@ -61,6 +66,14 @@ Send preprod test ADA to your payment address from the faucet:
 <https://docs.cardano.org/cardano-testnets/tools/faucet> (select **Preprod**).
 A few test ADA is plenty. Plutus transactions also need a pure-ADA UTxO for
 collateral, which the adapter selects automatically from this wallet.
+
+> **You need ≥ 2 UTxOs, not just enough ADA.** The faucet delivers the funds as a
+> **single** UTxO, but every Plutus anchor tx needs one UTxO for collateral *plus* at
+> least one separate UTxO for funding — so a freshly-funded wallet with one UTxO fails
+> with `Insufficient funds … have 0`. Split it once with a plain self-payment that creates
+> several outputs back to your own address (e.g. 4–5 outputs), then anchor as normal. The
+> adapter also retries a write that hits an already-spent input (the Blockfrost address-UTxO
+> index lags confirmation, so back-to-back writes can momentarily select a stale UTxO).
 
 ## Step 4 — Configure the C# adapter
 

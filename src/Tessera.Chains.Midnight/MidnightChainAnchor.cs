@@ -15,8 +15,9 @@ namespace Tessera.Chains.Midnight;
 ///   <see cref="NotSupportedException"/> — writes are not implemented, and the adapter does not
 ///   pretend otherwise.</item>
 /// </list>
-/// Midnight mainnet is live; this integration is on the roadmap. See the package README and
-/// <c>docs/architecture.md</c>. The honesty level matches the Stellar scaffold.
+/// Midnight mainnet is live; this integration is on the roadmap and is the only remaining scaffold
+/// (the Solana, EVM, Cardano, and Stellar adapters are complete and testnet-verified). See the
+/// package README and <c>docs/architecture.md</c>.
 /// </summary>
 public sealed class MidnightChainAnchor : IChainAnchor
 {

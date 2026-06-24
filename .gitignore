@@ -46,5 +46,5 @@ wwwroot/
 .env
 .env.local
 
-# Local EVM deploy artifact (addresses from scripts/deploy-local.js)
-deployed.local.json
+# Local/testnet EVM deploy artifacts (addresses from scripts/deploy-local.js + deploy.js)
+deployed.*.json

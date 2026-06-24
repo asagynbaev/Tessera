@@ -35,6 +35,14 @@ public sealed record EvmChainAnchorOptions
     /// <summary>Optional fixed gas limit for write transactions. Null = let the node estimate.</summary>
     public BigInteger? GasLimit { get; init; }
 
+    /// <summary>
+    /// Send legacy (type-0) transactions priced via <c>eth_gasPrice</c> instead of EIP-1559.
+    /// Some chains — notably BNB Chain (testnet and mainnet) — reject 1559 transactions whose
+    /// priority fee is zero ("gas tip cap 0, minimum needed 1"), which is what Nethereum's
+    /// auto-fee path produces there; enable this to anchor on those chains. Default false (1559).
+    /// </summary>
+    public bool UseLegacyGasPricing { get; init; }
+
     /// <summary>Retry policy for transient RPC failures. Defaults to 3 attempts with backoff.</summary>
     public EvmRetryPolicy Retry { get; init; } = EvmRetryPolicy.Default;
 

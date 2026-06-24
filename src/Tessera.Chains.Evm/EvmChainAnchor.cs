@@ -2,6 +2,7 @@ using System.Numerics;
 using Nethereum.Contracts;
 using Nethereum.Contracts.ContractHandlers;
 using Nethereum.Hex.HexTypes;
+using Nethereum.RPC.NonceServices;
 using Nethereum.Util;
 using Nethereum.Web3;
 using Nethereum.Web3.Accounts;
@@ -38,6 +39,7 @@ public sealed class EvmChainAnchor : IChainAnchor
     private readonly string _contractAddress;
     private readonly string _chainTag;
     private readonly BigInteger? _gasLimit;
+    private readonly bool _useLegacyGas;
     private readonly EvmRetryPolicy _retry;
     private readonly TimeProvider _clock;
     // Used to prove control of the DID when registering (see AnchorRootAsync). The signing key is the
@@ -57,9 +59,16 @@ public sealed class EvmChainAnchor : IChainAnchor
 
         var account = new Account(options.PrivateKey, options.ChainId);
         _web3 = new Web3(account, options.RpcUrl);
+        // Track nonces locally and monotonically. The adapter awaits each receipt before the next
+        // write, but load-balanced public RPCs can still return a stale `pending` nonce on the
+        // follow-up read, causing two back-to-back writes to collide / reorder on-chain. An
+        // in-memory nonce service increments locally after each send, so sequential writes from one
+        // instance are always correctly ordered regardless of replica lag.
+        account.NonceService = new InMemoryNonceService(account.Address, _web3.Client);
         _contractAddress = options.ContractAddress;
         _chainTag = options.EffectiveChainTag;
         _gasLimit = options.GasLimit;
+        _useLegacyGas = options.UseLegacyGasPricing;
         _retry = options.Retry;
         _clock = clock ?? TimeProvider.System;
         _signingKey = options.PrivateKey;
@@ -83,7 +92,8 @@ public sealed class EvmChainAnchor : IChainAnchor
         EvmRetryPolicy? retry = null,
         TimeProvider? clock = null,
         string? signingKey = null,
-        BigInteger numericChainId = default)
+        BigInteger numericChainId = default,
+        bool useLegacyGas = false)
     {
         _web3 = web3 ?? throw new ArgumentNullException(nameof(web3));
         ArgumentNullException.ThrowIfNull(contractAddress);
@@ -92,6 +102,7 @@ public sealed class EvmChainAnchor : IChainAnchor
         _contractAddress = contractAddress;
         _chainTag = chainTag ?? throw new ArgumentNullException(nameof(chainTag));
         _gasLimit = gasLimit;
+        _useLegacyGas = useLegacyGas;
         _retry = retry ?? EvmRetryPolicy.Default;
         _clock = clock ?? TimeProvider.System;
         _signingKey = signingKey;
@@ -222,7 +233,16 @@ public sealed class EvmChainAnchor : IChainAnchor
     private async Task<AnchorTxResult> SendAsync<TFunc>(ContractHandler handler, TFunc fn, CancellationToken ct)
         where TFunc : FunctionMessage, new()
     {
-        if (_gasLimit is { } g) fn.Gas = new HexBigInteger(g);
+        // Gas limit: caller-fixed, else estimate with a safety buffer. A bare estimate is a lower
+        // bound and runs out of gas when the real execution costs marginally more than the simulated
+        // one (e.g. read-after-write replica lag on public RPCs, or refund/warm-slot accounting),
+        // surfacing as a status-0 revert. The buffer is free on success — gas is billed on gasUsed.
+        fn.Gas = _gasLimit is { } g
+            ? new HexBigInteger(g)
+            : new HexBigInteger(EvmTx.WithGasBuffer((await handler.EstimateGasAsync(fn).ConfigureAwait(false)).Value));
+        // BNB Chain (and some others) reject 1559 txs with a zero priority fee. Pin an explicit
+        // legacy gas price so Nethereum sends a type-0 transaction instead of an auto-1559 one.
+        if (_useLegacyGas) fn.GasPrice = await _web3.Eth.GasPrice.SendRequestAsync().ConfigureAwait(false);
         ct.ThrowIfCancellationRequested();
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);

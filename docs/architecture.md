@@ -8,8 +8,10 @@ Privacy-preserving identity and reputation infrastructure for our own product. C
 - Generic attestation envelopes (issuer-signed, type-tagged, expiring).
 - Selective-disclosure presentations with Merkle inclusion proofs.
 - A minimal on-chain anchor — Merkle root + revocation epoch — chain-agnostic via `IChainAnchor`.
-  Solana, generic-EVM, and Cardano (Aiken / Plutus V3, preprod) adapters complete; Stellar and
-  Midnight adapters are scaffolds.
+  Solana (devnet), generic-EVM (BNB testnet), Cardano (Aiken / Plutus V3, preprod), and Stellar
+  (Soroban, testnet) adapters are complete and **validated live on their public testnets** (the
+  full adapter ↔ on-chain smoke suite passes against a deployed anchor on each); the Midnight
+  adapter is a scaffold.
 - A from-scratch Bulletproofs-on-secp256k1 library, used for selective disclosure
   over committed values.
 
@@ -104,7 +106,8 @@ Tessera/
 │   ├── Tessera.Chains.Cardano.Tests/
 │   ├── Tessera.Chains.Evm/                 Generic EVM adapter (Nethereum) + allowlist gateway
 │   ├── Tessera.Chains.Evm.Tests/
-│   ├── Tessera.Chains.Stellar/             Stellar adapter scaffold (StellarDotnetSdk, Soroban)
+│   ├── Tessera.Chains.Stellar/             Stellar adapter (StellarDotnetSdk, Soroban; complete)
+│   ├── Tessera.Chains.Stellar.Tests/
 │   ├── Tessera.Chains.Midnight/            Midnight adapter scaffold (Compact + tx layer pending)
 │   ├── Tessera.Sdk/                        Holder, Issuer, Verifier facades + IssuancePipeline
 │   ├── Tessera.Sdk.Tests/
@@ -127,9 +130,9 @@ Tessera/
 │   ├── cardano/                             Aiken identity-registry (Plutus V3, preprod; adapter: complete)
 │   │   ├── Makefile  README.md  DEPLOYMENT.md
 │   │   └── contracts/identity-registry/     validators + plutus.json blueprint (checked in)
-│   └── stellar/                             Soroban attestation-verifier (adapter: in progress)
-│       ├── Cargo.toml
-│       └── contracts/attestation-verifier/
+│   └── stellar/                             Soroban attestation-anchor + verifier (adapter: complete)
+│       ├── Cargo.toml  README.md  DEPLOYMENT.md
+│       └── contracts/                       attestation-anchor (DID anchor), attestation-verifier
 │
 ├── Tessera/                                v2.x monolith — meta-package referencing the splits
 ├── Tessera.Tests/                          Tests for the legacy monolith APIs
@@ -363,7 +366,7 @@ See [`docs/security-audit-readiness.md`](security-audit-readiness.md) for the fu
 All planned moves from the v2 monolith have been completed:
 
 - `Tessera/Crypto/*` → `src/Tessera.Cryptography/` ✅
-- `Tessera/Integration/Stellar/*` → `src/Tessera.Chains.Stellar/` (scaffold; anchor contract pending) ✅
+- `Tessera/Integration/Stellar/*` → `src/Tessera.Chains.Stellar/` (complete; `attestation-anchor` contract + adapter) ✅
 - `Tessera/Privacy/CredentialProof.cs` → `src/Tessera.Attestations/` ✅
 - `Tessera/Core/Zkp.cs` + `Tessera/Interfaces/IBlockchain.cs` → deleted ✅
 

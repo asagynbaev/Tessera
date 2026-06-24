@@ -7,6 +7,20 @@ revocation epochs. Plug in any network by implementing `IChainAnchor` — **Sola
 EVM, and Stellar** adapters are included — plus generic building blocks for permissioned EVM
 tokens gated by identity.
 
+> ### ✅ All four chain anchors are validated **live on public testnets**
+> The full adapter ↔ on-chain round-trip (register / update-root / bump-revocation / reads) has
+> been exercised against real networks, not just local nodes:
+>
+> | Chain | Network | Live smoke | Deployed anchor |
+> |---|---|---|---|
+> | Solana | devnet | ✅ 5/5 | program `FRHDcMs7MKDi87TPtcRZBovLrb6Kj2Aa1SL5iqvm1nEi` |
+> | EVM | BNB testnet (97) | ✅ 6/6 | `IdentityRegistry` `0xc84D91fD19368886C0b86C8A55DE5c981Cdd31cf` |
+> | Cardano | preprod | ✅ 5/5 | Aiken Plutus V3 `identity-registry` validator |
+> | Stellar | testnet | ✅ 5/5 | contract `CCD5ADZNH5CSULAHJHAQPBULVDDCOUGLS2N33DVS5JP3EBKOOY33VLQJ` |
+>
+> Each suite is `[SkippableFact]`-gated on `TESSERA_*` env vars, so it skips on a fresh checkout
+> and runs live when pointed at a funded testnet key. See each chain's `DEPLOYMENT.md`.
+
 [![NuGet](https://img.shields.io/nuget/v/Sagynbaev.Tessera)](https://www.nuget.org/packages/Sagynbaev.Tessera)
 [![NuGet Downloads](https://img.shields.io/nuget/dt/Sagynbaev.Tessera)](https://www.nuget.org/packages/Sagynbaev.Tessera)
 [![Build](https://github.com/asagynbaev/Tessera/actions/workflows/dotnet.yml/badge.svg)](https://github.com/asagynbaev/Tessera/actions/workflows/dotnet.yml)
@@ -49,7 +63,7 @@ the `Sagynbaev.Tessera.Sdk` package); namespaces remain `Tessera.*`.
 | `Tessera.Chains.Abstractions` | `IChainAnchor` + `IAllowlistGateway` + `DidHash` — chain-agnostic interfaces. |
 | `Tessera.Chains.Solana` | Solana adapter targeting the `identity-registry` Anchor program. |
 | `Tessera.Chains.Cardano` | Cardano adapter (CardanoSharp + Blockfrost): `CardanoChainAnchor` targeting the Aiken `identity-registry` Plutus V3 validators (preprod), with a metadata-mode fallback. |
-| `Tessera.Chains.Stellar` | Stellar adapter scaffold targeting a Soroban anchor contract. |
+| `Tessera.Chains.Stellar` | Stellar adapter (StellarDotnetSdk): `StellarChainAnchor` targeting the `attestation-anchor` Soroban contract (testnet), via Soroban RPC. |
 | `Tessera.Chains.Midnight` | Midnight adapter **scaffold** — Compact contract + transaction layer pending (reads report no anchor, writes throw `NotSupported`). |
 | `Tessera.Chains.Evm` | Generic EVM adapter (Nethereum): `EvmChainAnchor` + `EvmAllowlistGateway`, any chainId/RPC. |
 | `Tessera.Sources.Sumsub` | Layer-2 plugin: Sumsub KYC → `kyc_verified` / `jurisdiction` attestations. |
@@ -83,7 +97,7 @@ Tessera/
 │   ├── Tessera.Chains.Solana/           Solana adapter (Solnet)
 │   ├── Tessera.Chains.Cardano/          Cardano adapter (CardanoSharp + Blockfrost, Aiken Plutus V3)
 │   ├── Tessera.Chains.Evm/              Generic EVM adapter (Nethereum) + allowlist gateway
-│   ├── Tessera.Chains.Stellar/          Stellar adapter scaffold
+│   ├── Tessera.Chains.Stellar/          Stellar adapter (StellarDotnetSdk, Soroban; complete)
 │   ├── Tessera.Chains.Midnight/         Midnight adapter scaffold (Compact + tx layer pending)
 │   ├── Tessera.Sdk/                     Holder, Issuer, Verifier, IssuancePipeline, policy
 │   ├── Tessera.Sources.Sumsub/          Layer-2 plugin: Sumsub KYC
@@ -94,7 +108,7 @@ Tessera/
 │   ├── solana/programs/identity-registry/   Anchor program (adapter: complete)
 │   ├── evm/                             Hardhat: IdentityRegistry, Allowlist, PermissionedToken
 │   ├── cardano/contracts/identity-registry/  Aiken validators (Plutus V3, preprod; adapter: complete)
-│   └── stellar/contracts/attestation-verifier/  Soroban contract (adapter: in progress)
+│   └── stellar/contracts/                  Soroban: attestation-anchor (DID anchor), attestation-verifier (adapter: complete)
 │
 ├── examples/
 │   ├── PrivacyApps/                     ConfidentialTransfer, SealedBidAuction, PrivateVoting
@@ -259,14 +273,16 @@ dotnet ef migrations add InitialTessera --project Tessera.EntityFrameworkCore
 ## Chains
 
 The on-chain layer stores **only** Merkle attestation roots and revocation epochs.
-DID documents, attestations, and proofs are never written on-chain.
+DID documents, attestations, and proofs are never written on-chain. **All four production
+adapters are validated live on public testnets** (see the summary table at the top); only
+Midnight remains a scaffold.
 
 | Chain | Status | Code |
 |---|---|---|
-| **Solana** | Adapter complete; one-command devnet deploy ([`scripts/deploy-devnet.sh`](chains/solana/scripts/deploy-devnet.sh)) — the env-gated smoke suite runs live against the deployed program; record the id in [`chains/solana/DEPLOYMENT.md`](chains/solana/DEPLOYMENT.md) | [`chains/solana/`](chains/solana/) |
-| **EVM** | Adapter complete; contracts + ABI checked in | [`chains/evm/`](chains/evm/) |
-| **Cardano** | Adapter complete; Aiken Plutus V3 validators (preprod) — `aiken check` green, blueprint checked in; preprod script addresses in [`chains/cardano/DEPLOYMENT.md`](chains/cardano/DEPLOYMENT.md) | [`chains/cardano/`](chains/cardano/) |
-| **Stellar** | Adapter scaffold; anchor contract pending | [`chains/stellar/contracts/attestation-verifier/`](chains/stellar/contracts/attestation-verifier/) |
+| **Solana** | Adapter complete; **verified live on devnet (5/5)**. One-command deploy ([`scripts/deploy-devnet.sh`](chains/solana/scripts/deploy-devnet.sh)); program id in [`chains/solana/DEPLOYMENT.md`](chains/solana/DEPLOYMENT.md) | [`chains/solana/`](chains/solana/) |
+| **EVM** | Adapter complete; **verified live on BNB testnet (6/6)** — anchor + allowlist. Contracts + ABI checked in; deploy + smoke in [`chains/evm/README.md`](chains/evm/README.md) | [`chains/evm/`](chains/evm/) |
+| **Cardano** | Adapter complete; **verified live on preprod (5/5)**. Aiken Plutus V3 validators (`aiken check` green, blueprint checked in); see [`chains/cardano/DEPLOYMENT.md`](chains/cardano/DEPLOYMENT.md) | [`chains/cardano/`](chains/cardano/) |
+| **Stellar** | Adapter complete; **verified live on testnet (5/5)** against a deployed `attestation-anchor` Soroban contract; see [`chains/stellar/DEPLOYMENT.md`](chains/stellar/DEPLOYMENT.md) | [`chains/stellar/`](chains/stellar/) |
 | **Midnight** | Adapter scaffold; Compact contract + tx layer pending (mainnet is live) | [`src/Tessera.Chains.Midnight/`](src/Tessera.Chains.Midnight/) |
 
 The Solana adapter speaks to a minimal Anchor program whose four core anchoring instructions are

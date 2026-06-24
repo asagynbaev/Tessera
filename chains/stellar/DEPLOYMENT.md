@@ -221,16 +221,57 @@ export ZKP_SOURCE_ACCOUNT="GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 }
 ```
 
-## Step 8: Exercise the contract from C#
+## Step 8: Deploy the DID anchor and run the C# smoke suite
 
-The `Tessera.Chains.Stellar` C# adapter is currently a scaffold — the dedicated
-anchor-storage contract has not been written yet (see
-[`README.md` § Future work](README.md#future-work)). For ad-hoc on-chain testing
-of the existing `attestation-verifier` contract, invoke it directly with the
-`stellar` CLI or by building Soroban transactions in your own code.
+Everything above deploys the **`attestation-verifier`** (issuer-signature checks). DID
+anchoring through `IChainAnchor` uses a second contract, **`attestation-anchor`**, which the
+`Tessera.Chains.Stellar` adapter drives. This is the parity path with Solana devnet / EVM
+testnet / Cardano preprod.
 
-If you want to use Tessera's higher-level API against Stellar anchoring today,
-prefer the Solana adapter — see [`docs/deploying-solana.md`](../../docs/deploying-solana.md).
+### 8a. Build & deploy the anchor contract
+
+```bash
+cd chains/stellar
+cargo build --target wasm32v1-none --release        # builds both contracts (workspace)
+
+stellar contract deploy \
+  --wasm target/wasm32v1-none/release/attestation_anchor.wasm \
+  --source alice \
+  --network testnet
+# → prints the anchor contract id: CXXXX...
+```
+
+No `initialize` step is needed: anchors are owner-authorized per DID (the first `anchor_root`
+binds the DID to its owner), so there is no admin to set up.
+
+> **Verified on testnet.** The full `StellarTestnetSmokeTests` suite ran live against a deployed
+> anchor (5/5). If you can't build the WASM locally (e.g. no Rust host linker on Windows), build it
+> in Docker — `docker run --rm -v "<repo>/chains/stellar:/work" -w /work -e CARGO_TARGET_DIR=/tmp/target
+> rust:1 bash -c "rustup target add wasm32v1-none && cargo build --release --target wasm32v1-none -p
+> attestation-anchor"` — and deploy with the prebuilt `stellar` CLI binary (GitHub releases), no
+> local Rust toolchain required.
+
+### 8b. Run the live smoke suite
+
+The `StellarTestnetSmokeTests` in `src/Tessera.Chains.Stellar.Tests` are `[SkippableFact]`-gated
+on the env vars below, so they skip unless pointed at a live network. The signing account must
+be **funded** (friendbot, Step 3) — it signs writes and becomes each DID's `owner`.
+
+```bash
+export TESSERA_STELLAR_RPC=https://soroban-testnet.stellar.org   # optional; this is the default
+export TESSERA_STELLAR_CONTRACT=CXXXX...                         # the anchor id from 8a
+export TESSERA_STELLAR_SKEY=SXXXX...                             # funded testnet secret seed (S...)
+# export TESSERA_STELLAR_PASSPHRASE="Public Global Stellar Network ; September 2015"  # for mainnet
+
+dotnet test src/Tessera.Chains.Stellar.Tests -c Release          # Skipped → Passed, live on testnet
+```
+
+`stellar keys show alice --secret` prints the `S...` seed for the account you funded above.
+The suite registers fresh random DIDs, updates roots, bumps revocation, and reads state back —
+each write awaits on-chain confirmation, so a full run takes about a minute on testnet.
+
+> Stellar is at full parity with the Solana, EVM, and Cardano adapters — all four are validated
+> live on their public testnets, so pick whichever network fits your deployment.
 
 ## Troubleshooting
 
