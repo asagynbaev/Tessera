@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Tessera.Agents</RootNamespace>
+    <AssemblyName>Tessera.Agents</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <Description>Verified-agent identity for Tessera: issue/verify an agent_identity attestation binding an agent key to its principal DID, and sign/verify HTTP requests with the agent's did:tessera controller key using RFC 9421 HTTP Message Signatures (Web Bot Auth compatible). Zero payment dependencies.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Tessera.Agents.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Tessera.Core\Tessera.Core.csproj" />
+    <ProjectReference Include="..\Tessera.Attestations\Tessera.Attestations.csproj" />
+    <ProjectReference Include="..\Tessera.Signing\Tessera.Signing.csproj" />
+  </ItemGroup>
+
+</Project>

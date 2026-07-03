@@ -55,6 +55,7 @@ the `Sagynbaev.Tessera.Sdk` package); namespaces remain `Tessera.*`.
 | `Tessera.Attestations` | `Attestation`, `AttestationIssuer`, `MerkleTree`, `AttestationVerifier`, `PresentationVerifier`, `IIssuerRegistry`, `CredentialProof` (incl. `CombineCommitments`/`CombineOpenings` for predicates over a sum/difference of commitments), `ChainSnapshot`. |
 | `Tessera.Cryptography` | Pure-C# secp256k1, Pedersen commitments, Bulletproofs (no external deps). |
 | `Tessera.Signing` | Production Ed25519 (NSec / libsodium). Drop-in `Ed25519Verifier` and `Ed25519IssuerSigner`. |
+| `Tessera.Agents` | Verified-agent identity: issue/verify an `agent_identity` attestation binding an agent to its principal DID, and sign/verify HTTP requests with the agent's `did:tessera` key via RFC 9421 HTTP Message Signatures (Web Bot Auth compatible). No payment dependencies. |
 | `Tessera.EntityFrameworkCore` | EF Core `IDidStore` and `IIssuerRegistry` over any relational provider (Postgres, SQL Server, SQLite). |
 | `Tessera.Chains.Abstractions` | `IChainAnchor` + `IAllowlistGateway` + `DidHash` — chain-agnostic interfaces. |
 | `Tessera.Chains.Solana` | Solana adapter targeting the `identity-registry` Anchor program. |
@@ -77,6 +78,7 @@ Tessera/
 │   ├── Tessera.Attestations/            Attestations + Merkle + CredentialProof + schema registry
 │   ├── Tessera.Cryptography/            secp256k1 + Bulletproofs
 │   ├── Tessera.Signing/                 Ed25519 (NSec)
+│   ├── Tessera.Agents/                  agent_identity binding + RFC 9421 HTTP Message Signatures
 │   ├── Tessera.EntityFrameworkCore/     Postgres/SQL Server/SQLite stores
 │   ├── Tessera.Chains.Abstractions/     IChainAnchor, IAllowlistGateway, DidHash
 │   ├── Tessera.Chains.Solana/           Solana adapter (Solnet)
@@ -306,6 +308,50 @@ whose transfers are gated by the allowlist. Its end-to-end test walks KYC/regist
 DID + attestations → presentation → policy → allowlist admission → token ownership, then revokes
 KYC and shows transfers are blocked. See [docs/security-audit-readiness.md](docs/security-audit-readiness.md)
 for the audit dossier and known limitations.
+
+## Verified agents (`Tessera.Agents`)
+
+`Tessera.Agents` gives an autonomous agent a verifiable identity: an `agent_identity` attestation
+binds the agent to the **principal** it acts for (the principal is the issuer, the agent is the
+subject), and the agent signs its outgoing HTTP requests with its `did:tessera` controller key using
+**RFC 9421 HTTP Message Signatures** (Web Bot Auth compatible — Ed25519, structured-field signatures).
+The DID re-derives from the key, so a verifier authenticates the signer with no key directory. No
+payment dependencies; pair it with a payment layer (e.g. x402) out of band if you need one.
+
+```csharp
+using Tessera.Agents;
+using Tessera.Agents.HttpMessageSignatures;
+
+// 1. Principal issues an agent→principal binding (principal = issuer, agent = subject).
+var binding = AgentIdentity.IssueBinding(
+    principal: principalDid, principalSigner, agent: agentDid, scopes: new[] { "read:prices" });
+
+// 2. Agent signs an outgoing request with its did:tessera controller key.
+var request = new HttpRequestMessage(HttpMethod.Get, "https://api.example.com/prices?symbol=BTC");
+await HttpMessageSigner.SignAsync(request, new HttpSignatureSigningOptions
+{
+    PrivateKey = agentControllerSeed,   // 32-byte Ed25519 seed
+    KeyId      = agentDid.Value,          // the DID re-derives from the key — no directory needed
+    Tag        = "web-bot-auth",
+});
+
+// 3. Relying party verifies the HTTP signature, then the agent→principal binding.
+var sig = await HttpMessageVerifier.VerifyAsync(request, new HttpSignatureVerificationOptions
+{
+    PublicKey = agentControllerPublicKey,
+});
+if (!sig.Valid) return; // sig.Reason, e.g. "bad_signature", "content_digest_mismatch"
+
+var check = await AgentIdentity.VerifyBindingAsync(
+    binding, issuerRegistry, new Ed25519Verifier(), expectedAgent: sig.SignerDid);
+// check.Binding.Principal / .Scopes now drive authorization.
+```
+
+The signature covers `@method`, `@authority`, `@path`, `@query`, and (for requests with a body) the
+`Content-Digest`; the verifier enforces a minimum covered set by default, so an under-scoped signature
+is rejected. Freshness is bounded out of the box (5-minute `MaxAge`, `created` required); for strict
+single-use, pair it with a nonce store. RFC 9421 signature-base construction is pinned byte-for-byte
+against the spec's Ed25519 test vector (Appendix B.2.6).
 
 ## Migrating from the v2.x monolith
 

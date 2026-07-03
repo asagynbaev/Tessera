@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`Tessera.Agents` — verified-agent identity.** Issue/verify an `agent_identity` attestation binding
+  an agent to the principal it acts for (principal = issuer, agent = subject, optional scopes), and
+  sign/verify HTTP requests with the agent's `did:tessera` controller key via **RFC 9421 HTTP Message
+  Signatures** (Web Bot Auth compatible; Ed25519). The signer adds `Content-Digest` / `Signature-Input`
+  / `Signature`; the verifier enforces a minimum covered-component set (rejecting scope downgrades), a
+  bounded freshness window (5-minute default `MaxAge`, `created` required), the `Content-Digest` over
+  the body, and the self-certifying DID↔key binding (`DidId.FromControllerKey(pubkey) == keyid`). The
+  signature-base construction is pinned byte-for-byte against RFC 9421's Ed25519 test vector
+  (Appendix B.2.6), and the verifier was adversarially reviewed for downgrade/spoof/replay/parsing
+  holes. No payment dependencies — pair with a payment layer (e.g. x402) out of band.
+
 ## [5.0.0] - 2026-07-03
 
 > 🔒 **Security-hardening round 2 (breaking).** A second full pre-production audit — cryptography,
