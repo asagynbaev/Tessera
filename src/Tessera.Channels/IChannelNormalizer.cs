@@ -36,6 +36,7 @@ public sealed class DefaultChannelNormalizer : IChannelNormalizer
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(handle);
         ArgumentException.ThrowIfNullOrEmpty(channelType);
+        // Cap the RAW input first to bound the normalization work below.
         if (handle.Length > MaxHandleLength)
             throw new ArgumentException($"Handle exceeds {MaxHandleLength} characters.", nameof(handle));
 
@@ -43,6 +44,14 @@ public sealed class DefaultChannelNormalizer : IChannelNormalizer
         // derive different commitments (nor a look-alike dodge an existing binding). This participates
         // in the on-disk format, but only changes commitments for non-NFKC (i.e. non-ASCII) handles.
         var trimmed = handle.Normalize(System.Text.NormalizationForm.FormKC).Trim();
+
+        // NFKC can EXPAND the string (e.g. a single ligature or compatibility char folds to several
+        // chars — U+FDFA expands to 18). Re-enforce the cap on the NORMALIZED value so the intended
+        // 256-char bound actually holds on what we hash and on NormalizePhone's scratch buffer, rather
+        // than on the pre-expansion input.
+        if (trimmed.Length > MaxHandleLength)
+            throw new ArgumentException(
+                $"Handle exceeds {MaxHandleLength} characters after Unicode normalization.", nameof(handle));
 
         return channelType switch
         {
@@ -55,7 +64,11 @@ public sealed class DefaultChannelNormalizer : IChannelNormalizer
 
     private static string NormalizePhone(string s)
     {
-        Span<char> buf = stackalloc char[s.Length + 1];
+        // The buffer holds a leading '+' plus at most every input char, so length + 1 suffices. The
+        // input is already length-capped by Normalize(), so the stack path is bounded; fall back to the
+        // heap for anything at/above the cap so an unexpectedly long input can never overflow the stack.
+        char[]? rented = s.Length >= MaxHandleLength ? new char[s.Length + 1] : null;
+        Span<char> buf = rented ?? stackalloc char[MaxHandleLength + 1];
         int i = 0;
         buf[i++] = '+';
         foreach (var c in s)

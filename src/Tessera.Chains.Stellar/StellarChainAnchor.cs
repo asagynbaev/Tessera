@@ -96,6 +96,7 @@ namespace Tessera.Chains.Stellar
             byte[]? root = null;
             ulong epoch = 0;
             ulong updatedAt = 0;
+            string? owner = null;
             foreach (var entry in map.Entries)
             {
                 if (entry.Key is not SCSymbol key) continue;
@@ -104,6 +105,14 @@ namespace Tessera.Chains.Stellar
                     case "root": root = (entry.Value as SCBytes)?.InnerValue; break;
                     case "epoch": epoch = (entry.Value as SCUint64)?.InnerValue ?? 0; break;
                     case "updated_at": updatedAt = (entry.Value as SCUint64)?.InnerValue ?? 0; break;
+                    // The contract's require_auth(owner) gates every write to this account. Surface
+                    // the owner account id so verifiers can compare it against the DID's expected
+                    // controller and detect anchor substitution. Owner is an account Address, so it
+                    // decodes to ScAccountId; tolerate ScContractId for forward compatibility.
+                    case "owner":
+                        owner = (entry.Value as ScAccountId)?.InnerValue
+                            ?? (entry.Value as ScContractId)?.InnerValue;
+                        break;
                 }
             }
 
@@ -116,6 +125,7 @@ namespace Tessera.Chains.Stellar
                 AttestationRoot = root,
                 RevocationEpoch = epoch,
                 UpdatedAt = DateTimeOffset.FromUnixTimeSeconds((long)updatedAt),
+                Owner = owner,
             };
         }
 

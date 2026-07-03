@@ -47,6 +47,38 @@ proof verification on-chain. Auditors should confirm no code path writes anythin
 
 ## Addressed
 
+> **Security-hardening round 2 — shipped in 5.0.0** (see `CHANGELOG.md`). A second full pre-production
+> audit (cryptography, attestation/proof verification, chain adapters + contracts, external sources)
+> plus **adversarial re-verification of every fix** — **no Critical findings, no committed secrets.**
+> Delivered:
+> - **Cross-attribute predicate substitution closed (High).** `PredicateRequirement.Type` binds a
+>   range proof to the issuer-signed `Type` of the attestation whose commitment it is proven against;
+>   a null type fails closed, and the holder-set bundle label is no longer authoritative. Previously a
+>   proof over one attestation's commitment (e.g. `reputation_score`) could satisfy a requirement about
+>   another (e.g. income). Covered by the cross-attribute-substitution negative test in
+>   `PolicyEvaluationTests`.
+> - **On-chain anchor owner surfaced + checkable.** `AnchorState.Owner` is populated by all four
+>   adapters (EVM EIP-55, Solana base58, Cardano controller-key hex, Stellar account id) and
+>   `VerificationPolicy.ExpectedAnchorOwner` rejects a substituted/squatted anchor
+>   (`anchor_owner_mismatch`), failing closed when the owner is unobservable
+>   (`anchor_owner_unverifiable`). Cardano validator-mode reads fail closed on a conflicting
+>   `(policyId, did_hash)` token instead of returning an arbitrary UTxO.
+> - **Constant-time Bulletproofs prover.** Secret-dependent point accumulation uses the branchless
+>   `Point.AddCt`; `DecomposeBits` reads the witness from the scalar's fixed limbs with the range
+>   check after a fixed-length scan; the bit→scalar select is branchless; `PedersenCommitment.Commit`
+>   uses `AddCt`. Proof bytes/verification unchanged (BouncyCastle oracle + round-trip tests green;
+>   re-verified adversarially that `AddCt` yields the identical group element on the ∞/doubling/negation
+>   edges).
+> - **Replay & revocation.** Optional single-use presentation nonces (`presentation_replayed`, plus
+>   `session_nonce_required` for an empty nonce when a store is configured); offline revocation fails
+>   closed (`revocation_unverifiable`) without a trusted `ExpectedRevocationEpoch`; optional DID-level
+>   revocation (`holder_did_revoked` / `issuer_did_revoked`).
+> - **Sources & persistence.** Bitcoin `INonceStore` is now mandatory (no silent process-local
+>   default) and balance facts enforce a min-confirmation depth (default 6, flash-fund resistance);
+>   the EF `issuers` trust root gets an optimistic-concurrency token + retry; Sumsub/X-Road HTTP
+>   clients disable auto-redirect (custom auth-header leak); channel handles are length-capped after
+>   NFKC.
+
 > **Security-hardening pass — shipped in 4.0.0** (see `CHANGELOG.md`). A multi-round review
 > (cryptography, on-chain, external-service, and IDOR/race methodology) closed the items below.
 > **No Critical findings were identified in any round.** Delivered: constant-time crypto + canonical
@@ -157,8 +189,9 @@ proof verification on-chain. Auditors should confirm no code path writes anythin
 ## Known limitations (do not ship to high-assurance use without addressing)
 
 1. **`Tessera.Cryptography` is now constant-time but still self-implemented / not formally reviewed.**
-   `Point.ScalarMul` and the field/scalar arithmetic are now constant-time (limb-based, branchless
-   ladder — see §"Addressed"), and non-canonical encodings are rejected. It remains from-scratch
+   `Point.ScalarMul`, the field/scalar arithmetic, AND (as of 5.0.0) the Bulletproofs prover are now
+   constant-time (limb-based, branchless ladder / `Point.AddCt` accumulation — see §"Addressed"), and
+   non-canonical encodings are rejected. It remains from-scratch
    MANAGED code, so an external cryptography audit is still recommended before protecting funds or
    high-value secrets, and JIT-level constant-timeness is not formally guaranteed. Two
    soundness/format items stay DEFERRED because their fixes are BREAKING wire-format changes (see
@@ -195,6 +228,22 @@ proof verification on-chain. Auditors should confirm no code path writes anythin
    the script-data hash + ex-unit budgeting end-to-end. The Aiken validators themselves are covered
    by `aiken check`; Metadata mode and all reads are independent of this gap. (Metadata-mode reads
    now authenticate the controller — see §"Addressed".)
+5. **Two 5.0.0-audit on-chain fixes are source/design-only and need a redeploy the local toolchain
+   can't validate.** (a) **Solana registration squatting.** The off-chain owner-check
+   (`ExpectedAnchorOwner`) catches anchor *substitution*, but the per-`did_hash` PDA can still be
+   occupied by a front-runner, leaving a DID unanchorable on Solana. Closing the residual DoS needs a
+   controller-signature-gated registration or an admin-reclaim instruction — a program change +
+   redeploy (the live devnet program is unchanged). (b) **Stellar `attestation-verifier` message
+   framing.** `verify_proof` / `verify_balance_proof` sign a bare `data ‖ salt` concatenation without
+   a length prefix (boundary-shift malleability); the .NET adapter does not call these paths, and a
+   length-prefixed framing is a Soroban contract change + redeploy.
+6. **The anchor owner-check is opt-in and format-sensitive.** It enforces only when
+   `ExpectedAnchorOwner` is set — set it on chains without globally-unique anchor keys (Solana,
+   Cardano). Pin the owner in exactly the adapter's emitted format (EVM is EIP-55 checksummed; the
+   compare is case-sensitive, so a lowercase pin false-rejects — fails closed, never opens). Cardano
+   metadata-mode owner is controller-scoped (not usable for third-party substitution detection), a
+   validator-mode conflict fails closed (a third party can grief reads of a squatted `did_hash`), and
+   the Stellar owner read is not yet covered by a live-testnet assertion.
 
 ## Deterministic test artifacts
 

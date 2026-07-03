@@ -55,6 +55,14 @@ public class XRoadHttpClientTests
     }
 
     [Fact]
+    public void CreateHardenedHandler_DisablesAutoRedirect()
+    {
+        // L-2: following a redirect would replay the X-Road-Client subsystem header to the target.
+        using var handler = XRoadHttpClient.CreateHardenedHandler();
+        Assert.False(handler.AllowAutoRedirect);
+    }
+
+    [Fact]
     public void MapRecord_UsesServerAssertedNationalIdAndParcel()
     {
         using var doc = JsonDocument.Parse(

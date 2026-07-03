@@ -237,9 +237,80 @@ public class EndToEndFlowTests
         {
             ExpectedVerifier = verifierDid,
             ExpectedAnchorRoot = holder.CurrentRoot,
+            // Offline revocation is now gated on a caller-supplied trusted epoch (M-2). The presentation
+            // is bound to epoch 0; supplying 0 as the trusted current epoch keeps the check satisfied.
+            ExpectedRevocationEpoch = 0,
         });
 
         Assert.True(result.Valid, $"failed: {result.Reason}");
+    }
+
+    [Fact]
+    public async Task Verifier_Offline_WithoutExpectedEpoch_FailsClosed()
+    {
+        // M-2: offline verification (cached root, no live anchor) with no trusted revocation epoch must
+        // NOT silently skip revocation — it fails closed with a distinct reason.
+        var (holder, holderPriv, _, issuer, registry, verifier) = await BuildPair();
+        holder.AcceptAttestation(issuer.Issue("phone_verified", holder.Did, new AttestationPayload { Method = "x" }));
+
+        var verifierDid = new DidId("did:tessera:app");
+        var presentation = holder.BuildSignedPresentation(
+            verifier: verifierDid,
+            attestationTypes: new[] { "phone_verified" },
+            sessionNonce: RandomBytes(16),
+            asOfRevocationEpoch: 0,
+            chain: "test",
+            signChallenge: ch => Ed25519.Sign(holderPriv, ch.Span));
+
+        var zkpVerifier = new Verifier(new VerifierOptions
+        {
+            IssuerRegistry = registry,
+            SignatureVerifier = verifier,
+            ChainAnchor = null,
+        });
+
+        var result = await zkpVerifier.VerifyPresentationAsync(presentation, new VerificationPolicy
+        {
+            ExpectedVerifier = verifierDid,
+            ExpectedAnchorRoot = holder.CurrentRoot, // no ExpectedRevocationEpoch
+        });
+
+        Assert.False(result.Valid);
+        Assert.Equal("revocation_unverifiable", result.Reason);
+    }
+
+    [Fact]
+    public async Task Verifier_Offline_StaleAgainstExpectedEpoch_Fails()
+    {
+        // M-2: with a trusted expected epoch, an offline presentation bound to an OLDER epoch is stale.
+        var (holder, holderPriv, _, issuer, registry, verifier) = await BuildPair();
+        holder.AcceptAttestation(issuer.Issue("phone_verified", holder.Did, new AttestationPayload { Method = "x" }));
+
+        var verifierDid = new DidId("did:tessera:app");
+        var presentation = holder.BuildSignedPresentation(
+            verifier: verifierDid,
+            attestationTypes: new[] { "phone_verified" },
+            sessionNonce: RandomBytes(16),
+            asOfRevocationEpoch: 2, // holder claims epoch 2
+            chain: "test",
+            signChallenge: ch => Ed25519.Sign(holderPriv, ch.Span));
+
+        var zkpVerifier = new Verifier(new VerifierOptions
+        {
+            IssuerRegistry = registry,
+            SignatureVerifier = verifier,
+            ChainAnchor = null,
+        });
+
+        var result = await zkpVerifier.VerifyPresentationAsync(presentation, new VerificationPolicy
+        {
+            ExpectedVerifier = verifierDid,
+            ExpectedAnchorRoot = holder.CurrentRoot,
+            ExpectedRevocationEpoch = 5, // verifier's trusted current epoch is 5 > 2
+        });
+
+        Assert.False(result.Valid);
+        Assert.Equal("revocation_stale", result.Reason);
     }
 
     [Fact]

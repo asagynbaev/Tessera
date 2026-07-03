@@ -150,6 +150,39 @@ namespace Tessera.Cryptography.Tests
             Assert.True(RangeProof.Verify(V, deserialized, SmallN));
         }
 
+        // Constant-time hardening (Medium finding): the bit split now reads the scalar's fixed 4-limb
+        // little-endian form (no BigInteger, no data-dependent shift) and the range check is folded
+        // into one overflow mask tested AFTER the fixed-length loop. These tests pin that the split
+        // still produces the correct bits (proofs verify) and that out-of-range values are rejected.
+
+        [Fact]
+        public void DecomposeBits_AllValuesInRange_ProveAndVerify()
+        {
+            // Exhaustively confirm the constant-time decomposition yields the correct bits for every
+            // value in [0, 2^n): a wrong bit value or order would break tHat and fail verification.
+            const int n = 4;
+            for (long v = 0; v < (1L << n); v++)
+            {
+                var gamma = Scalar.Random();
+                var (proof, V) = RangeProof.Prove(Scalar.From(v), gamma, n);
+                Assert.True(RangeProof.Verify(V, proof, n), $"value {v} failed to verify");
+            }
+        }
+
+        [Theory]
+        [InlineData(1L << 4)]         // 2^n exactly — the first out-of-range value
+        [InlineData((1L << 4) + 1)]   // 2^n + 1
+        [InlineData(1L << 10)]        // well above range, high bits set
+        [InlineData(long.MaxValue)]   // ~2^63, exercises the high limb of the far-past-n overflow scan
+        public void DecomposeBits_OutOfRange_RejectedAfterLoop(long v)
+        {
+            // The overflow check now runs after the fixed-length scan (no per-bit throw), but an
+            // out-of-range value must still be rejected before a proof is produced.
+            const int n = 4;
+            var gamma = Scalar.Random();
+            Assert.Throws<ArgumentOutOfRangeException>(() => RangeProof.Prove(Scalar.From(v), gamma, n));
+        }
+
         #endregion
 
         #region Bitcoin balance range width (satoshis)

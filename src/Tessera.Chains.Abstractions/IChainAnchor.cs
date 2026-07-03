@@ -39,6 +39,19 @@ public sealed record AnchorState
     public required byte[] AttestationRoot { get; init; }
     public required ulong RevocationEpoch { get; init; }
     public required DateTimeOffset UpdatedAt { get; init; }
+
+    /// <summary>
+    /// The chain-native identifier of the account that owns/controls this anchor
+    /// (EVM checksummed address, Solana base58 pubkey, Cardano controller key hash,
+    /// Stellar account id), or <c>null</c> when the backend does not surface it.
+    /// <para>
+    /// Verifiers MUST compare this against the DID's expected controller to detect
+    /// anchor substitution / squatting: a chain like Solana or Cardano can hold a
+    /// second anchor for the same <c>did_hash</c> written by an attacker key, and the
+    /// only off-chain defense is checking that the owner matches the real controller.
+    /// </para>
+    /// </summary>
+    public string? Owner { get; init; }
 }
 
 public enum RevocationReason

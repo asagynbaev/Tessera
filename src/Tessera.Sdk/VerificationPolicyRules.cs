@@ -5,21 +5,38 @@ namespace Tessera.Sdk;
 
 /// <summary>
 /// A declarative predicate requirement: the presentation must include a valid
-/// <see cref="CredentialBundle"/> (range proof) whose <see cref="CredentialBundle.Label"/> matches
-/// and whose proven bound satisfies this requirement. Lets a verifier demand e.g. "income ≥ threshold"
-/// without learning the value and without any hardwired business logic.
+/// <see cref="CredentialBundle"/> (range proof) that is proven over the committed attribute of a
+/// disclosed attestation of the required <see cref="Type"/> and whose proven bound satisfies this
+/// requirement. Lets a verifier demand e.g. "income ≥ threshold" without learning the value and
+/// without any hardwired business logic.
 /// </summary>
 /// <remarks>
-/// <para><b>Soundness caveat (tracked for the crypto audit / A6):</b> the current
-/// <see cref="CredentialProof"/> range proof commits to a fresh value not yet cryptographically
-/// bound to the attestation's own committed attribute (<see cref="AttestationPayload.Commitment"/>).
-/// This requirement therefore verifies that <em>a</em> valid proof of the asserted bound is present;
-/// binding that proof to the specific attested value is a planned hardening. Do not rely on predicate
-/// requirements alone for high-assurance gating until that binding lands.</para>
+/// <para>The proof is checked BOUND to the attestation's own Pedersen commitment
+/// (<see cref="CredentialProof.VerifyBound"/>) AND pinned to the issuer-signed source
+/// <see cref="Type"/>: a bundle counts only when it verifies against the
+/// <see cref="AttestationPayload.Commitment"/> of a disclosed attestation whose canonical, issuer-signed
+/// <see cref="Attestation.Type"/> equals <see cref="Type"/>. This closes the attribute-substitution gap
+/// where a holder proved a predicate over one attestation's commitment (e.g. reputation) and relabelled
+/// the bundle as another attribute (e.g. income): the matched identity comes from signed data, never
+/// from the holder-set <see cref="CredentialBundle.Label"/>.</para>
 /// </remarks>
 public sealed record PredicateRequirement
 {
-    /// <summary>Bundle label this requirement targets (e.g. <c>"income"</c>, <c>"age"</c>).</summary>
+    /// <summary>
+    /// The issuer-signed <see cref="Attestation.Type"/> the predicate must be proven over (e.g.
+    /// <c>"accredited"</c>). A bundle is accepted only when it verifies BOUND to the commitment of a
+    /// disclosed attestation whose canonical, issuer-signed Type equals this value.
+    /// <para><b>Fail-closed:</b> when this is <c>null</c> the predicate is rejected, because the
+    /// attribute identity would otherwise rest on the holder-controlled <see cref="Label"/> alone. Set
+    /// it to the attestation type that carries the committed value.</para>
+    /// </summary>
+    public string? Type { get; init; }
+
+    /// <summary>
+    /// Bundle label this requirement targets (e.g. <c>"income"</c>, <c>"age"</c>). The label is
+    /// holder-set and therefore <em>non-authoritative</em> — it can only further narrow a match, never
+    /// establish the attribute identity (that is <see cref="Type"/>'s job).
+    /// </summary>
     public required string Label { get; init; }
 
     /// <summary>Whether a minimum (≥ threshold) or range proof is required.</summary>
@@ -185,7 +202,7 @@ internal static class PolicyEvaluation
 
         var validBundles = ExtractValidBundles(presentation);
         foreach (var req in policy.PredicateRequirements)
-            if (!validBundles.Any(b => Satisfies(b, req)))
+            if (!validBundles.Any(b => Satisfies(b.SourceType, b.Bundle, req)))
                 return $"predicate_unsatisfied:{req.Label}";
         return null;
     }
@@ -212,10 +229,12 @@ internal static class PolicyEvaluation
         return false;
     }
 
-    private static List<CredentialBundle> ExtractValidBundles(Presentation presentation)
+    // A predicate bundle that verified BOUND to a disclosed attestation's commitment, tagged with that
+    // attestation's issuer-signed Type — the authoritative attribute identity for matching a requirement.
+    private static List<(string SourceType, CredentialBundle Bundle)> ExtractValidBundles(Presentation presentation)
     {
         var proofChecker = new CredentialProof();
-        var bundles = new List<CredentialBundle>();
+        var bundles = new List<(string SourceType, CredentialBundle Bundle)>();
 
         foreach (var disclosure in presentation.Disclosures)
         {
@@ -232,14 +251,25 @@ internal static class PolicyEvaluation
             catch { continue; } // malformed proof: ignore, requirement simply stays unsatisfied
 
             if (proofChecker.VerifyBound(commitment, bundle)) // valid AND bound to this attestation
-                bundles.Add(bundle);
+                // Tag with the issuer-signed Type so a requirement can pin WHICH attribute was proven.
+                bundles.Add((disclosure.Attestation.Type, bundle));
         }
 
         return bundles;
     }
 
-    private static bool Satisfies(CredentialBundle bundle, PredicateRequirement req)
+    private static bool Satisfies(string sourceType, CredentialBundle bundle, PredicateRequirement req)
     {
+        // Fail closed: a requirement that does not pin the SOURCE attestation type cannot be securely
+        // evaluated — the attribute identity would rest on the holder-chosen Label alone, letting a
+        // holder satisfy, say, an "income" requirement with a range proof over a reputation commitment.
+        if (req.Type is null) return false;
+
+        // Authoritative attribute identity: the proof must have verified BOUND (VerifyBound) to the
+        // commitment of a DISCLOSED attestation whose ISSUER-SIGNED Type equals the required type.
+        if (!string.Equals(sourceType, req.Type, StringComparison.Ordinal)) return false;
+
+        // Label is a holder-set, non-authoritative filter: it can only narrow the match further.
         if (!string.Equals(bundle.Label, req.Label, StringComparison.Ordinal)) return false;
         if (bundle.ProofType != req.ProofType) return false;
 

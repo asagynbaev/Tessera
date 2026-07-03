@@ -151,7 +151,7 @@ var result = await verifier.VerifyPresentationAsync(presentation, new Verificati
     RequiredTypes = new[] { AttestationTypes.Accredited },
     PredicateRequirements = new[]
     {
-        new PredicateRequirement { Label = "income", ProofType = CredentialProofType.Minimum, Threshold = required },
+        new PredicateRequirement { Type = AttestationTypes.Accredited, Label = "income", ProofType = CredentialProofType.Minimum, Threshold = required },
     },
 });
 

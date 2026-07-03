@@ -7,8 +7,8 @@ seriously. Thank you for helping keep it and its users safe.
 
 | Version | Supported |
 |---|---|
-| 3.3.x (latest) | ✅ Security fixes |
-| < 3.3 | ❌ Please upgrade |
+| 5.0.x (latest) | ✅ Security fixes |
+| < 5.0 | ❌ Please upgrade |
 
 Fixes land on the latest release line. Packages are published on nuget.org under the
 `Sagynbaev.Tessera*` prefix via Trusted Publishing (OIDC) — no long-lived API key is stored.
@@ -33,10 +33,17 @@ we will work with you on a fix and a release before any public write-up.
 ## Known limitations (please read before relying on Tessera for high-assurance use)
 
 The cryptographic core (`Tessera.Cryptography`: from-scratch secp256k1, Pedersen commitments, and
-Bulletproofs) is **not constant-time and has not had an external cryptographic audit**. In
-particular, `Point.ScalarMul` is a branch-on-bit double-and-add (leaks the scalar to timing/SPA), and
-the claim-canonicalization wire format is length-prefixed but not type-tagged. **Do not use it to
-protect funds or high-value secrets until that audit is complete.**
+Bulletproofs) is now **constant-time** — both the scalar multiplication and, as of 5.0.0, the
+Bulletproofs prover (branchless point accumulation + limb-based bit decomposition) — and is
+cross-checked against an independent BouncyCastle oracle, **but it has not had an external
+cryptographic audit** and remains self-implemented managed code (JIT-level constant-timeness is not
+formally guaranteed). The claim-canonicalization wire format is length-prefixed but not type-tagged.
+**Do not use it to protect funds or high-value secrets until an external audit is complete.**
+
+The anchor-owner substitution check (`ExpectedAnchorOwner`) is opt-in, and two on-chain items are
+tracked but require a redeploy: a controller-signature-gated / admin-reclaim path for Solana
+registration (squatting is currently a per-`did_hash` DoS, not a substitution risk), and
+length-prefixed message framing in the Stellar `attestation-verifier`.
 
 The full threat model, what is in/out of scope, the deterministic test vectors, and the deferred
 items are documented in **[docs/security-audit-readiness.md](docs/security-audit-readiness.md)** —

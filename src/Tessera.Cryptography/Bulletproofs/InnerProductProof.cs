@@ -171,11 +171,14 @@ namespace Tessera.Cryptography.Bulletproofs
             Scalar[] b, int bOff, Point[] h, int hOff,
             int len, Scalar c, Point u)
         {
+            // Accumulate over the secret l/r vectors with the constant-time complete addition: a zero
+            // entry makes a[..]*g[..] == ∞, which the branchy operator+ would short-circuit on, leaking
+            // it. Point.AddCt returns the same point, so the emitted L/R bytes are unchanged.
             var result = c * u;
             for (int i = 0; i < len; i++)
             {
-                result = result + a[aOff + i] * g[gOff + i];
-                result = result + b[bOff + i] * h[hOff + i];
+                result = Point.AddCt(result, a[aOff + i] * g[gOff + i]);
+                result = Point.AddCt(result, b[bOff + i] * h[hOff + i]);
             }
             return result;
         }

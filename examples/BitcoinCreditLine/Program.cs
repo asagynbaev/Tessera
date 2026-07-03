@@ -94,7 +94,10 @@ Console.WriteLine($"Holder Bitcoin address (testnet, P2WPKH): {btcAddress}");
 var challenge = BitcoinChallenge.Create(holder.Did, audience, TimeSpan.FromMinutes(10));
 var signature = BitcoinWallet.SignChallenge(wallet, challenge.ToCanonicalString());
 
-var control = new BitcoinControlVerifier();
+// Single-node demo: an in-memory nonce store is fine here. Production must pass a shared,
+// durable store (Redis / a database) so a replayed (address, signature) tuple can't be
+// accepted after a restart or on a second node.
+var control = new BitcoinControlVerifier(new Tessera.Sources.Bitcoin.InMemoryNonceStore());
 var controlResult = await control.VerifyAsync(challenge, audience, btcAddress, signature, BitcoinNetwork.Testnet);
 if (!controlResult.IsValid)
 {
@@ -185,7 +188,7 @@ var verification = await verifier.VerifyPresentationAsync(presentation, new Veri
     RequiredTypes = new[] { BitcoinAttestationTypes.Balance },
     PredicateRequirements = new[]
     {
-        new PredicateRequirement { Label = "btc_balance", ProofType = CredentialProofType.Minimum, Threshold = oneBtc },
+        new PredicateRequirement { Type = BitcoinAttestationTypes.Balance, Label = "btc_balance", ProofType = CredentialProofType.Minimum, Threshold = oneBtc },
     },
 });
 

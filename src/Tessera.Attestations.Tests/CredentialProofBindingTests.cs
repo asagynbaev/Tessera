@@ -20,6 +20,20 @@ public class CredentialProofBindingTests
     }
 
     [Fact]
+    public void VerifyAgainstOwnCommitment_IsUnbound_AndProvesNothingAboutAnAttestation()
+    {
+        // The renamed unbound self-check verifies a bundle against ITS OWN commitment only.
+        var cp = new CredentialProof();
+        var standalone = cp.ProveMinimum(120_000, 100_000, "income");
+        Assert.True(cp.VerifyAgainstOwnCommitment(standalone));
+
+        // It is explicitly NOT attestation-bound: an independent attestation commitment does not
+        // verify the same proof (that guarantee comes from VerifyBound, not this method).
+        var (attestationCommitment, _) = cp.CommitValue(120_000);
+        Assert.False(cp.VerifyBound(attestationCommitment, standalone));
+    }
+
+    [Fact]
     public void VerifyBound_Rejects_ProofBoundToDifferentCommitment()
     {
         var cp = new CredentialProof();

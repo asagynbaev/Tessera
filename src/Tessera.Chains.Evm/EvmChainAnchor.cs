@@ -267,6 +267,12 @@ public sealed class EvmChainAnchor : IChainAnchor
             AttestationRoot = dto.AttestationRoot ?? Array.Empty<byte>(),
             RevocationEpoch = dto.RevocationEpoch,
             UpdatedAt = DateTimeOffset.FromUnixTimeSeconds((long)dto.UpdatedAt),
+            // The on-chain owner is the controller the contract enforces on every write. Surface it
+            // (EIP-55 checksummed) so verifiers can compare it against the DID's expected controller
+            // and detect anchor substitution. Null only if the contract somehow returned no address.
+            Owner = string.IsNullOrWhiteSpace(dto.Owner)
+                ? null
+                : AddressUtil.Current.ConvertToChecksumAddress(dto.Owner),
         };
     }
 

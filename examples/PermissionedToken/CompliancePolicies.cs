@@ -38,6 +38,6 @@ public static class CompliancePolicies
         => BaseAdmission(verifier, sessionNonce) with
         {
             RequiredTypes = new[] { AttestationTypes.KycVerified, AttestationTypes.Jurisdiction, AttestationTypes.Accredited },
-            PredicateRequirements = new[] { new PredicateRequirement { Label = "income", Threshold = incomeThreshold } },
+            PredicateRequirements = new[] { new PredicateRequirement { Type = AttestationTypes.Accredited, Label = "income", Threshold = incomeThreshold } },
         };
 }

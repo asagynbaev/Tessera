@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using Microsoft.EntityFrameworkCore;
 using Tessera.Attestations;
 using Tessera.Core;
 using Tessera.EntityFrameworkCore;
@@ -130,6 +131,73 @@ public class EfCoreIssuerRegistryTests
 
         var result = await reg.DeactivateAsync(new DidId("did:tessera:never-registered"));
         Assert.False(result);
+    }
+
+    // L-1: without an optimistic-concurrency token on `issuers`, a DeactivateAsync could be silently
+    // lost to a racing RegisterAsync (last write wins, no signal). The Version concurrency token turns
+    // the stale write into a detectable conflict.
+    [Fact]
+    public async Task IssuerVersion_IsConcurrencyToken_StaleWriteThrows()
+    {
+        using var fx = new SqliteFixture();
+        var record = SampleIssuer("did:tessera:issuer-token");
+
+        await using (var db = fx.CreateContext())
+            await new EfCoreIssuerRegistry(db).RegisterAsync(record);
+
+        // Two contexts read the SAME row (Version 1) directly (bypassing the auto-retrying registry,
+        // to observe the token itself).
+        await using var dbA = fx.CreateContext();
+        await using var dbB = fx.CreateContext();
+        var a = await dbA.Issuers.FirstAsync(i => i.Did == record.Did.Value);
+        var b = await dbB.Issuers.FirstAsync(i => i.Did == record.Did.Value);
+        Assert.Equal(1, a.Version);
+        Assert.Equal(1, b.Version);
+
+        // Writer A commits first (deactivates).
+        a.Active = false;
+        a.Version++;
+        await dbA.SaveChangesAsync();
+
+        // Writer B, off the now-stale snapshot, must be rejected by the concurrency token.
+        b.SchemaUri = "https://schemas.tessera/attestation/v2";
+        b.Version++;
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => dbB.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task Register_RacingWithDeactivate_RetriesOntoCommittedRow()
+    {
+        using var fx = new SqliteFixture();
+        var record = SampleIssuer("did:tessera:issuer-race");
+
+        await using (var seed = fx.CreateContext())
+            await new EfCoreIssuerRegistry(seed).RegisterAsync(record); // Version 1
+
+        // Context B loads the issuer (Version 1) into its change tracker — a stale snapshot the
+        // registry will reuse on its first save attempt.
+        await using var dbB = fx.CreateContext();
+        _ = await dbB.Issuers.FirstAsync(i => i.Did == record.Did.Value);
+
+        // Meanwhile a separate context deactivates the issuer (row → Version 2, Active=false).
+        await using (var dbA = fx.CreateContext())
+            Assert.True(await new EfCoreIssuerRegistry(dbA).DeactivateAsync(record.Did));
+
+        // Registry B updates the issuer through the stale context. Its first SaveChanges trips a
+        // DbUpdateConcurrencyException on the token; the registry re-reads the committed row and
+        // retries, so the call SUCCEEDS rather than silently clobbering (or throwing).
+        var regB = new EfCoreIssuerRegistry(dbB);
+        var updated = record with { SchemaUri = "https://schemas.tessera/attestation/v2" };
+        await regB.RegisterAsync(updated);
+
+        await using (var verify = fx.CreateContext())
+        {
+            var loaded = await verify.Issuers.FirstAsync(i => i.Did == record.Did.Value);
+            Assert.Equal("https://schemas.tessera/attestation/v2", loaded.SchemaUri);
+            // 1 (insert) → 2 (deactivate) → 3 (retried update): proves the retry re-applied onto the
+            // committed row rather than losing the deactivate's version bump.
+            Assert.Equal(3, loaded.Version);
+        }
     }
 
     [Fact]

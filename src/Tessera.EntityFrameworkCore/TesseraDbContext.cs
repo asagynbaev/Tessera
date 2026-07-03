@@ -119,6 +119,13 @@ public class TesseraDbContext : DbContext
             e.Property(x => x.Algorithm).HasMaxLength(32).IsRequired();
             e.Property(x => x.SchemaUri).HasMaxLength(512).IsRequired();
             e.Property(x => x.Active).IsRequired();
+
+            // Optimistic concurrency (mirrors did_documents): Version is bumped on every update by
+            // EfCoreIssuerRegistry. Marking it a concurrency token makes EF emit
+            // UPDATE ... WHERE Did=@did AND Version=@original, so a racing writer (e.g. a
+            // RegisterAsync that read the row before a concurrent DeactivateAsync committed) affects
+            // 0 rows and throws DbUpdateConcurrencyException instead of silently losing the update.
+            e.Property(x => x.Version).IsRequired().IsConcurrencyToken();
             e.Property(x => x.CreatedAt).IsRequired();
             e.Property(x => x.UpdatedAt).IsRequired();
 

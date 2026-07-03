@@ -42,6 +42,16 @@ public sealed class XRoadHttpClient : IXRoadClient
                 $"SecurityServerUrl must have a non-empty host: '{options.SecurityServerUrl}'.", nameof(options));
     }
 
+    /// <summary>
+    /// An <see cref="HttpClientHandler"/> hardened for this client: <see cref="HttpClientHandler.AllowAutoRedirect"/>
+    /// is <c>false</c>. An X-Road security server is a single hop and never legitimately returns a
+    /// redirect, so following one would only replay the <c>X-Road-Client</c> subsystem header to an
+    /// attacker-chosen target. The injected <see cref="HttpClient"/> MUST be built on a handler
+    /// configured this way (in addition to the consumer's mTLS client certificate) — use
+    /// <see cref="CreateHardenedHandler"/> as the base, or apply the same setting to your own handler.
+    /// </summary>
+    public static HttpClientHandler CreateHardenedHandler() => new() { AllowAutoRedirect = false };
+
     public async Task<XRoadRegistryRecord?> LookupAsync(XRoadQuery query, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(query);

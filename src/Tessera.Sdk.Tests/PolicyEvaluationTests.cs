@@ -107,7 +107,7 @@ public class PolicyEvaluationTests
         var (commit, proof) = BoundIncome(income: 50_000, floor: 40_000);
         var r = PolicyEvaluation.EvaluateDeclarativeRules(
             Present(Disclosure("accredited", proof, commit)),
-            Policy(new PredicateRequirement { Label = "income", Threshold = 30_000 }));
+            Policy(new PredicateRequirement { Type = "accredited", Label = "income", Threshold = 30_000 }));
         Assert.True(r.Valid, r.Reason);
     }
 
@@ -117,7 +117,7 @@ public class PolicyEvaluationTests
         var (commit, proof) = BoundIncome(income: 50_000, floor: 40_000);
         var r = PolicyEvaluation.EvaluateDeclarativeRules(
             Present(Disclosure("accredited", proof, commit)),
-            Policy(new PredicateRequirement { Label = "income", Threshold = 60_000 }));
+            Policy(new PredicateRequirement { Type = "accredited", Label = "income", Threshold = 60_000 }));
         Assert.False(r.Valid);
         Assert.Equal("predicate_unsatisfied:income", r.Reason);
     }
@@ -128,7 +128,7 @@ public class PolicyEvaluationTests
         var (commit, proof) = BoundIncome(50_000, 40_000);
         var r = PolicyEvaluation.EvaluateDeclarativeRules(
             Present(Disclosure("accredited", proof, commit)),
-            Policy(new PredicateRequirement { Label = "age", Threshold = 18 }));
+            Policy(new PredicateRequirement { Type = "accredited", Label = "age", Threshold = 18 }));
         Assert.False(r.Valid);
         Assert.Equal("predicate_unsatisfied:age", r.Reason);
     }
@@ -138,7 +138,7 @@ public class PolicyEvaluationTests
     {
         var r = PolicyEvaluation.EvaluateDeclarativeRules(
             Present(Disclosure("accredited")),
-            Policy(new PredicateRequirement { Label = "income", Threshold = 30_000 }));
+            Policy(new PredicateRequirement { Type = "accredited", Label = "income", Threshold = 30_000 }));
         Assert.False(r.Valid);
     }
 
@@ -149,7 +149,7 @@ public class PolicyEvaluationTests
         proof[^3] ^= 0xFF; // corrupt the encoded bundle
         var r = PolicyEvaluation.EvaluateDeclarativeRules(
             Present(Disclosure("accredited", proof, commit)),
-            Policy(new PredicateRequirement { Label = "income", Threshold = 30_000 }));
+            Policy(new PredicateRequirement { Type = "accredited", Label = "income", Threshold = 30_000 }));
         Assert.False(r.Valid);
     }
 
@@ -159,7 +159,7 @@ public class PolicyEvaluationTests
         var (commit, _) = BoundIncome(50_000, 40_000);
         var r = PolicyEvaluation.EvaluateDeclarativeRules(
             Present(Disclosure("accredited", new byte[] { 1, 2, 3, 4 }, commit)),
-            Policy(new PredicateRequirement { Label = "income", Threshold = 30_000 }));
+            Policy(new PredicateRequirement { Type = "accredited", Label = "income", Threshold = 30_000 }));
         Assert.False(r.Valid);
     }
 
@@ -176,7 +176,7 @@ public class PolicyEvaluationTests
 
         var r = PolicyEvaluation.EvaluateDeclarativeRules(
             Present(Disclosure("accredited", PredicateProofCodec.Encode(boundToA), commitB)),
-            Policy(new PredicateRequirement { Label = "income", Threshold = 30_000 }));
+            Policy(new PredicateRequirement { Type = "accredited", Label = "income", Threshold = 30_000 }));
         Assert.False(r.Valid); // binding check rejects the mismatched commitment
     }
 
@@ -190,7 +190,7 @@ public class PolicyEvaluationTests
 
         var r = PolicyEvaluation.EvaluateDeclarativeRules(
             Present(Disclosure("accredited", PredicateProofCodec.Encode(unbound), commit)),
-            Policy(new PredicateRequirement { Label = "income", Threshold = 30_000 }));
+            Policy(new PredicateRequirement { Type = "accredited", Label = "income", Threshold = 30_000 }));
         Assert.False(r.Valid);
     }
 
@@ -200,8 +200,53 @@ public class PolicyEvaluationTests
         var (_, proof) = BoundIncome(50_000, 40_000);
         var r = PolicyEvaluation.EvaluateDeclarativeRules(
             Present(Disclosure("accredited", proof, commitment: null)), // nothing to bind to
-            Policy(new PredicateRequirement { Label = "income", Threshold = 30_000 }));
+            Policy(new PredicateRequirement { Type = "accredited", Label = "income", Threshold = 30_000 }));
         Assert.False(r.Valid);
+    }
+
+    // ── H-1: predicate attribute substitution ────────────────────────────────
+
+    [Fact]
+    public void Predicate_CrossAttributeSubstitution_Rejected()
+    {
+        // Attack: the holder has a reputation attestation (with a commitment) and proves reputation ≥
+        // threshold BOUND to it, but LABELS the bundle "income" hoping to satisfy an income requirement.
+        // The proof is cryptographically valid and correctly bound — but to the WRONG attestation type.
+        var cp = new CredentialProof();
+        var (repCommit, repOpening) = cp.CommitValue(900);
+        var mislabeled = cp.ProveBoundMinimum(900, 700, repOpening, label: "income"); // holder-chosen label
+
+        var r = PolicyEvaluation.EvaluateDeclarativeRules(
+            Present(Disclosure("reputation_score", PredicateProofCodec.Encode(mislabeled), repCommit)),
+            Policy(new PredicateRequirement { Type = "accredited", Label = "income", Threshold = 100 }));
+
+        // Rejected: the required source Type "accredited" != the disclosed, issuer-signed "reputation_score".
+        Assert.False(r.Valid);
+        Assert.Equal("predicate_unsatisfied:income", r.Reason);
+    }
+
+    [Fact]
+    public void Predicate_CorrectSourceType_Passes()
+    {
+        // The same proof attached to an attestation of the REQUIRED, issuer-signed type is accepted.
+        var (commit, proof) = BoundIncome(income: 120_000, floor: 100_000);
+        var r = PolicyEvaluation.EvaluateDeclarativeRules(
+            Present(Disclosure("accredited", proof, commit)),
+            Policy(new PredicateRequirement { Type = "accredited", Label = "income", Threshold = 100_000 }));
+        Assert.True(r.Valid, r.Reason);
+    }
+
+    [Fact]
+    public void Predicate_NullSourceType_FailsClosed()
+    {
+        // A requirement that does not pin the source attestation Type is rejected outright — the
+        // attribute identity must not rest on the holder-controlled Label alone.
+        var (commit, proof) = BoundIncome(income: 50_000, floor: 40_000);
+        var r = PolicyEvaluation.EvaluateDeclarativeRules(
+            Present(Disclosure("accredited", proof, commit)),
+            Policy(new PredicateRequirement { Label = "income", Threshold = 30_000 })); // no Type
+        Assert.False(r.Valid);
+        Assert.Equal("predicate_unsatisfied:income", r.Reason);
     }
 
     [Fact]
@@ -213,7 +258,7 @@ public class PolicyEvaluationTests
 
         var r = PolicyEvaluation.EvaluateDeclarativeRules(
             Present(Disclosure("age_band", PredicateProofCodec.Encode(bundle), commit)),
-            Policy(new PredicateRequirement { Label = "age", ProofType = CredentialProofType.Range, Threshold = 100, UpperBound = 200 }));
+            Policy(new PredicateRequirement { Type = "age_band", Label = "age", ProofType = CredentialProofType.Range, Threshold = 100, UpperBound = 200 }));
         Assert.True(r.Valid, r.Reason);
     }
 
@@ -223,7 +268,7 @@ public class PolicyEvaluationTests
         var (commit, proof) = BoundIncome(150, 100, label: "age");
         var r = PolicyEvaluation.EvaluateDeclarativeRules(
             Present(Disclosure("age_band", proof, commit)),
-            Policy(new PredicateRequirement { Label = "age", ProofType = CredentialProofType.Range, Threshold = 100, UpperBound = 200 }));
+            Policy(new PredicateRequirement { Type = "age_band", Label = "age", ProofType = CredentialProofType.Range, Threshold = 100, UpperBound = 200 }));
         Assert.False(r.Valid); // a Minimum proof does not satisfy a Range requirement
     }
 
@@ -242,7 +287,7 @@ public class PolicyEvaluationTests
         var (commit, proof) = BoundRange(120, 100, 200);
         var r = PolicyEvaluation.EvaluateDeclarativeRules(
             Present(Disclosure("age_band", proof, commit)),
-            Policy(new PredicateRequirement { Label = "age", ProofType = CredentialProofType.Range, Threshold = 100, UpperBound = 150 }));
+            Policy(new PredicateRequirement { Type = "age_band", Label = "age", ProofType = CredentialProofType.Range, Threshold = 100, UpperBound = 150 }));
         Assert.False(r.Valid);
     }
 
@@ -252,7 +297,7 @@ public class PolicyEvaluationTests
         var (commit, proof) = BoundRange(120, 100, 200);
         var r = PolicyEvaluation.EvaluateDeclarativeRules(
             Present(Disclosure("age_band", proof, commit)),
-            Policy(new PredicateRequirement { Label = "age", ProofType = CredentialProofType.Range, Threshold = 50, UpperBound = 250 }));
+            Policy(new PredicateRequirement { Type = "age_band", Label = "age", ProofType = CredentialProofType.Range, Threshold = 50, UpperBound = 250 }));
         Assert.True(r.Valid, r.Reason);
     }
 

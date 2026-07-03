@@ -2,6 +2,104 @@
 
 ## [Unreleased]
 
+## [5.0.0] - 2026-07-03
+
+> 🔒 **Security-hardening round 2 (breaking).** A second full pre-production audit — cryptography,
+> attestation/proof verification, chain adapters + contracts, and external sources — followed by
+> adversarial re-verification of every fix. **No Critical findings and no committed secrets.** The
+> headline is a **cross-attribute predicate-substitution fix** (a holder could satisfy an "income ≥ X"
+> requirement with a *different* attestation's commitment) and **surfacing the on-chain anchor owner**
+> so verifiers can finally detect anchor substitution / squatting. Major version because several
+> defaults now **fail closed** and one constructor signature changed (see Breaking). Still
+> self-implemented managed crypto — an external cryptographic audit remains recommended.
+
+### ⚠ Breaking
+
+- **Predicate requirements bind to the issuer-signed attestation `Type`.** `PredicateRequirement`
+  gains a required `Type`; a predicate whose `Type` is `null` now **fails closed**, and a bound proof
+  is matched only against the commitment of a disclosed attestation whose issuer-signed `Type`
+  matches (the holder-set `Label` is no longer authoritative for attribute identity). Existing
+  predicate policies must set `Type` to the source attestation type (e.g. `AttestationTypes.Accredited`).
+  Closes cross-attribute substitution (a reputation-score commitment satisfying an income predicate).
+- **Offline / cached-root verification no longer skips revocation silently.** With no live
+  `ChainAnchor` and no `VerificationPolicy.ExpectedRevocationEpoch`, verification now returns
+  `revocation_unverifiable` instead of passing. Offline callers must supply a trusted
+  `ExpectedRevocationEpoch`.
+- **`BitcoinControlVerifier` requires an explicit `INonceStore`.** The first constructor parameter is
+  now mandatory (was an implicit process-local `InMemoryNonceStore`), so a non-durable replay store is
+  a visible choice at the call site. Single-node/test callers pass `new InMemoryNonceStore()`;
+  production passes a shared, durable store.
+- **Bitcoin balance facts require confirmation depth.** `BitcoinSourceOptions.MinConfirmations`
+  (default **6**) — shallow UTXOs no longer count toward `btc_balance` / `btc_hodl_age`, blocking a
+  flash-fund-then-move balance attestation. Set it to `1` to restore the prior behaviour.
+- **New `issuers.Version` column.** The EF `issuers` table gains an optimistic-concurrency token;
+  consumers must migrate (`dotnet ef migrations add …`) the `Version INTEGER NOT NULL DEFAULT 1` column
+  before deploying.
+- **`CredentialProof.Verify` is deprecated.** Renamed to `VerifyAgainstOwnCommitment` (it proves
+  nothing about any attestation — a footgun); `Verify` remains as an `[Obsolete]` forwarding alias.
+- **Channel handles are length-capped *after* NFKC.** A handle whose normalized form exceeds the cap
+  is now rejected (previously only the raw input was capped). No effect on ordinary handles.
+
+### Security
+
+- **Cross-attribute predicate substitution closed (High).** See Breaking — the predicate's attribute
+  identity now comes from issuer-signed canonical data, not the holder-chosen bundle label.
+- **On-chain anchor owner is now surfaced and checkable.** `AnchorState.Owner` carries the chain-native
+  owner (EVM EIP-55 address, Solana base58 pubkey, Cardano controller-key hex, Stellar account id) on
+  all four adapters, and `VerificationPolicy.ExpectedAnchorOwner` + the verifier's owner-check reject a
+  substituted / squatted anchor (`anchor_owner_mismatch`), failing closed when the owner cannot be
+  observed (`anchor_owner_unverifiable`). This is the off-chain defense the Solana/Cardano designs
+  always assumed but no consumer could perform, since the owner was previously discarded.
+- **Cardano validator-mode reads fail closed on conflicting anchors.** The adapter no longer returns an
+  arbitrary `utxos[0]` when more than one `(policyId, did_hash)` thread token exists; it selects the
+  UTxO whose datum controller matches the expected controller and throws on an unresolvable conflict.
+- **Bulletproofs prover is now constant-time end to end.** Secret-dependent point accumulation in the
+  range proof and inner-product argument uses the branchless complete-addition `Point.AddCt` (a 0 bit
+  no longer short-circuits on the point at infinity), `DecomposeBits` reads the witness from the
+  scalar's fixed 4-limb representation with the range check moved after a fixed-length scan (no
+  `BigInteger`, no data-dependent throw), the bit→scalar select is branchless, and
+  `PedersenCommitment.Commit` uses `AddCt` too. Proof bytes and verification are **unchanged** (pinned
+  by the BouncyCastle oracle + round-trip tests).
+- **Single-use presentation nonces.** An optional `VerifierOptions.NonceStore` atomically consumes the
+  `(holder, session nonce)` pair after the holder signature is verified (`presentation_replayed` on a
+  replay). A configured store also rejects an empty session nonce (`session_nonce_required`) so enabling
+  it is by itself sufficient replay protection.
+- **DID-level revocation on the read path.** An optional `VerifierOptions.DidStore` fails closed when
+  the holder (`holder_did_revoked`) or any disclosed issuer (`issuer_did_revoked`) DID is revoked.
+- **Source & persistence hardening.** Custom auth headers no longer follow HTTP redirects (Sumsub
+  `X-App-Token` / X-Road `X-Road-Client` leak — `AllowAutoRedirect = false` handler factories); the
+  `issuers` trust root gets an optimistic-concurrency token with retry, closing a lost-deactivation
+  race.
+
+### Added
+
+- `AnchorState.Owner`; `VerificationPolicy.ExpectedAnchorOwner` / `ExpectedRevocationEpoch`;
+  `PredicateRequirement.Type`; `VerifierOptions.NonceStore` / `DidStore`;
+  `BitcoinSourceOptions.MinConfirmations`; `SumsubHttpClient.CreateHardenedHandler()` /
+  `CreateHardenedHttpClient()`, `XRoadHttpClient.CreateHardenedHandler()`;
+  `CredentialProof.VerifyAgainstOwnCommitment`; `Point.AddCt` (now public).
+- New verification failure reasons: `anchor_owner_mismatch`, `anchor_owner_unverifiable`,
+  `revocation_unverifiable`, `holder_did_revoked`, `issuer_did_revoked`, `presentation_replayed`,
+  `session_nonce_required`.
+
+### Known limitations (tracked; some require an on-chain redeploy)
+
+- **Solana registration squatting is a DoS, not a substitution risk.** The `owner` is verified
+  off-chain via `ExpectedAnchorOwner` (substitution is caught), but the per-`did_hash` PDA can still be
+  occupied by a front-runner, leaving that DID unanchorable on Solana until a controller-signature-gated
+  registration or admin-reclaim path is added — a **contract change requiring redeploy** (the live
+  devnet program is unchanged in this release).
+- **Stellar `attestation-verifier` message framing.** `verify_proof` / `verify_balance_proof` sign a
+  bare `data ‖ salt` concatenation without a length prefix (boundary-shift malleability). The .NET
+  adapter does not call these paths; a length-prefixed framing is a **Soroban contract change requiring
+  redeploy**. Tracked in `docs/security-audit-readiness.md`.
+- **The anchor owner-check is opt-in.** It only enforces when `ExpectedAnchorOwner` is set — set it on
+  chains without globally-unique anchor keys (Solana, Cardano). Pin the owner in exactly the adapter's
+  emitted format (EVM is EIP-55 checksummed; the compare is case-sensitive). Cardano metadata-mode owner
+  is controller-scoped (usable for the adapter's own DIDs, not third-party substitution detection), a
+  validator-mode conflict fails closed (a third party can grief reads of a squatted `did_hash`), and the
+  Stellar owner read is not yet covered by a live-testnet assertion.
+
 ## [4.1.0] - 2026-06-24
 
 > 🌐 **All four chain anchors are now validated live on public testnets** — the full adapter ↔

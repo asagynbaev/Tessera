@@ -35,4 +35,25 @@ public sealed record VerifierOptions
     /// sensitive credential cannot be valid forever. Default false (backward-compatible).
     /// </summary>
     public bool RequireExpiry { get; init; }
+
+    /// <summary>
+    /// Optional single-use nonce store for presentation anti-replay. When supplied,
+    /// <see cref="Verifier.VerifyPresentationAsync"/> atomically consumes each presentation's
+    /// (holder DID, session nonce) pair after the holder signature is verified — mirroring how
+    /// wallet binding consumes its nonce — so a captured presentation cannot be replayed within its
+    /// freshness window (rejected as <c>presentation_replayed</c>). Null (default) = no single-use
+    /// enforcement; replay is then bounded only by <see cref="VerificationPolicy.MaxPresentationAge"/>.
+    /// Only presentations carrying a non-empty session nonce are consumed.
+    /// </summary>
+    public Tessera.Did.INonceStore? NonceStore { get; init; }
+
+    /// <summary>
+    /// Optional DID store for defense-in-depth revocation. When supplied,
+    /// <see cref="Verifier.VerifyPresentationAsync"/> rejects a presentation whose holder DID
+    /// (<c>holder_did_revoked</c>) — or any disclosed attestation's issuer DID
+    /// (<c>issuer_did_revoked</c>) — is present in the store and marked revoked, independently of the
+    /// on-chain revocation epoch and the issuer registry. An absent DID is not treated as revoked.
+    /// Null (default) = DID-level revocation is not consulted.
+    /// </summary>
+    public Tessera.Did.IDidStore? DidStore { get; init; }
 }

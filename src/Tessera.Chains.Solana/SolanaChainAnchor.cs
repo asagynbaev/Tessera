@@ -104,6 +104,10 @@ public sealed class SolanaChainAnchor : IChainAnchor
             AttestationRoot = account.AttestationRoot,
             RevocationEpoch = account.RevocationEpoch,
             UpdatedAt = DateTimeOffset.FromUnixTimeSeconds(account.UpdatedAt),
+            // The on-chain owner is the payer pubkey the program enforces via require_keys_eq! on
+            // every write. Surface it as a base58 pubkey so verifiers can compare it against the
+            // DID's expected controller and detect a second anchor written by an attacker key.
+            Owner = new PublicKey(account.Owner).Key,
         };
     }
 

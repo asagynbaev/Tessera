@@ -39,18 +39,26 @@ public sealed class BitcoinControlVerifier
     private readonly TimeSpan _clockSkew;
 
     /// <summary>
-    /// All dependencies are optional: an <see cref="InMemoryNonceStore"/>, no control store, a fresh
-    /// signature verifier, the system clock, and a 2-minute clock skew are used by default.
+    /// The nonce store is REQUIRED and must be supplied explicitly — there is no silent default.
+    /// Replay protection is only as durable as this store, and a process-local default
+    /// (<see cref="InMemoryNonceStore"/>) accepts a replayed (address, signature) tuple after a
+    /// restart or on a second node. Production deployments pass a shared, durable store (Redis, a
+    /// database); single-node or test callers may pass <c>new InMemoryNonceStore()</c> deliberately,
+    /// which makes that non-durable choice visible at the call site. The remaining dependencies are
+    /// optional: no control store, a fresh signature verifier, the system clock, and a 2-minute clock
+    /// skew are used by default.
     /// </summary>
+    /// <exception cref="ArgumentNullException"><paramref name="nonceStore"/> is null.</exception>
     public BitcoinControlVerifier(
-        INonceStore? nonceStore = null,
+        INonceStore nonceStore,
         IBitcoinControlStore? controlStore = null,
         BitcoinMessageSignatureVerifier? signatures = null,
         TimeProvider? clock = null,
         TimeSpan? clockSkew = null)
     {
+        ArgumentNullException.ThrowIfNull(nonceStore);
         _clock = clock ?? TimeProvider.System;
-        _nonceStore = nonceStore ?? new InMemoryNonceStore(_clock);
+        _nonceStore = nonceStore;
         _controlStore = controlStore;
         _signatures = signatures ?? new BitcoinMessageSignatureVerifier();
         _clockSkew = clockSkew ?? TimeSpan.FromMinutes(2);

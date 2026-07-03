@@ -174,7 +174,46 @@ public sealed class CardanoChainAnchor : IChainAnchor, IDisposable
         var unit = Convert.ToHexString(_policyId).ToLowerInvariant() + Convert.ToHexString(didHash).ToLowerInvariant();
         var utxos = await CardanoRetry.RunAsync(_options.Retry,
             () => _provider.GetAssetUtxosAsync(_scriptAddress, unit, ct), ct).ConfigureAwait(false);
-        return utxos.Count > 0 ? utxos[0] : null;
+
+        if (utxos.Count == 0) return null;
+        if (utxos.Count == 1) return utxos[0]; // Unambiguous: exactly one anchor for the unit — happy path.
+
+        // SECURITY (finding H-1): the thread-token unit (policyId ‖ did_hash) is NOT globally unique
+        // across transactions — anyone can mint the same asset name and park a second UTxO at the
+        // script address carrying their OWN datum/controller/root. Silently returning utxos[0] would
+        // let an attacker's planted anchor masquerade as the DID's real state. When more than one
+        // candidate exists we MUST disambiguate by the expected controller: the on-chain minting
+        // policy requires the datum's controller to sign the mint, so an attacker cannot forge the
+        // real controller's key hash into their datum. Select the UTxO whose controller matches this
+        // adapter's configured controller key (_key.KeyHash). If exactly one matches, that is the
+        // authentic anchor; if none (or several) match, the state is genuinely ambiguous / attacked
+        // and we fail closed rather than guess.
+        var matches = utxos.Where(u => DatumControllerMatches(u, _key.KeyHash)).ToList();
+        if (matches.Count == 1) return matches[0];
+
+        throw new InvalidOperationException(
+            $"Conflicting anchors for did_hash {Convert.ToHexString(didHash).ToLowerInvariant()}: " +
+            $"{utxos.Count} UTxOs hold the thread token at {_scriptAddress}, of which {matches.Count} match the " +
+            "expected controller. The (policyId, did_hash) unit is not globally unique, so this is a potential " +
+            "anchor-substitution/squatting attack — refusing to pick one arbitrarily. Verify the DID's controller " +
+            "and remove the spurious UTxO(s).");
+    }
+
+    /// <summary>
+    /// True iff <paramref name="utxo"/> carries a decodable <c>DidAnchorDatum</c> whose controller
+    /// equals <paramref name="controller"/>. Any missing/malformed datum yields false (never matches).
+    /// </summary>
+    private static bool DatumControllerMatches(CardanoUtxo utxo, byte[] controller)
+    {
+        if (utxo.InlineDatumCbor is null) return false;
+        try
+        {
+            var datum = DatumCodec.DecodeAnchorDatum(utxo.InlineDatumCbor);
+            return datum.Controller.AsSpan().SequenceEqual(controller);
+        }
+        // The datum is attacker-controlled in the conflict case: any decode failure (bad tag,
+        // malformed CBOR) simply means "not the controller's anchor" — never a match, never a crash.
+        catch (Exception ex) when (ex is InvalidOperationException or System.Formats.Cbor.CborContentException) { return false; }
     }
 
     private CardanoTxBuilder AnchorBuilder() => new(_provider, _key, _options.Network, _anchorScript);
@@ -221,7 +260,10 @@ public sealed class CardanoChainAnchor : IChainAnchor, IDisposable
         }
         if (best is null) return null;
         var updatedAt = await ResolveBlockTimeAsync(best.TxHash, ct).ConfigureAwait(false);
-        return AnchorStateMapper.ToAnchorState(did, bestRoot, bestEpoch, updatedAt);
+        // Every candidate is authenticated against the controller before it wins (TryReadDidMatch +
+        // IsFromController), so the owner is unambiguously the configured controller key hash.
+        var owner = Convert.ToHexString(_key.KeyHash).ToLowerInvariant();
+        return AnchorStateMapper.ToAnchorState(did, bestRoot, bestEpoch, updatedAt, owner);
     }
 
     /// <summary>

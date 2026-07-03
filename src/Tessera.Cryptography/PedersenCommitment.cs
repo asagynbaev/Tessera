@@ -9,8 +9,11 @@ namespace Tessera.Cryptography
     /// </summary>
     public static class PedersenCommitment
     {
+        // Constant-time: AddCt (not the branchy operator+) so a secret value of 0 — which makes
+        // value*G the point at infinity — does not take a different, timing-observable branch than
+        // a non-zero value. The scalar multiplications are already constant-time (ScalarMul).
         public static Point Commit(Scalar value, Scalar blinding)
-            => value * Generators.G + blinding * Generators.H;
+            => Point.AddCt(value * Generators.G, blinding * Generators.H);
 
         public static bool Open(Point commitment, Scalar value, Scalar blinding)
             => commitment == Commit(value, blinding);

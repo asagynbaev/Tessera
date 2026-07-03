@@ -120,7 +120,7 @@ public class PolicyVerificationFlowTests
             ExpectedVerifier = verifierDid,
             ExpectedSessionNonce = nonce,
             RequiredTypes = new[] { "accredited" },
-            PredicateRequirements = new[] { new PredicateRequirement { Label = "income", Threshold = 100_000 } },
+            PredicateRequirements = new[] { new PredicateRequirement { Type = "accredited", Label = "income", Threshold = 100_000 } },
         });
 
         Assert.True(result.Valid, result.Reason);
@@ -141,7 +141,7 @@ public class PolicyVerificationFlowTests
         {
             ExpectedVerifier = verifierDid,
             ExpectedSessionNonce = nonce,
-            PredicateRequirements = new[] { new PredicateRequirement { Label = "income", Threshold = 100_000 } },
+            PredicateRequirements = new[] { new PredicateRequirement { Type = "accredited", Label = "income", Threshold = 100_000 } },
         });
 
         Assert.False(result.Valid);

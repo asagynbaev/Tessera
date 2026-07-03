@@ -122,9 +122,12 @@ namespace Tessera.Cryptography.Secp256k1
         /// <summary>
         /// Branch-free addition covering every case (∞ operands, P==Q doubling, P==-Q → ∞): it computes
         /// the generic sum and the doubling unconditionally and selects the correct one with
-        /// constant-time masks, so the running time does not depend on which case occurred.
+        /// constant-time masks, so the running time does not depend on which case occurred. It returns
+        /// the same group element as <see cref="Add"/> for every input, so it is a drop-in replacement
+        /// on paths that accumulate secret-dependent points (where <see cref="Add"/>'s ∞ short-circuit
+        /// would otherwise leak which addends were the identity).
         /// </summary>
-        private static Point AddCt(Point p, Point q)
+        public static Point AddCt(Point p, Point q)
         {
             var z1sq = p.Z.Square();
             var z2sq = q.Z.Square();

@@ -16,6 +16,14 @@ public class BitcoinControlVerifierTests
     }
 
     [Fact]
+    public void Ctor_RequiresExplicitNonceStore()
+    {
+        // M-1: there is no silent in-memory default on the production path — a durable store must be
+        // passed deliberately (single-node/test callers pass new InMemoryNonceStore() on purpose).
+        Assert.Throws<ArgumentNullException>(() => new BitcoinControlVerifier(nonceStore: null!));
+    }
+
+    [Fact]
     public async Task ValidProof_Succeeds_AndRecordsAddress()
     {
         var clock = ClockInWindow();

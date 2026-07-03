@@ -165,6 +165,21 @@ namespace Tessera.Cryptography.Secp256k1
             return new Scalar(new BigInteger(value));
         }
 
+        /// <summary>
+        /// The canonical value as four little-endian 64-bit limbs (limb 0 is least significant).
+        /// Exposes the fixed-width internal representation so callers can read individual bits without a
+        /// data-dependent <see cref="BigInteger"/> (used by the constant-time range-proof bit split).
+        /// </summary>
+        internal ulong[] ToLimbsLE() => new[] { _l0, _l1, _l2, _l3 };
+
+        /// <summary>
+        /// Branchless construction of <see cref="Zero"/> (bit 0) or <see cref="One"/> (bit 1) from a
+        /// single bit — the same limb layout is built regardless of the bit's value, so it does not
+        /// leak the secret bit through a <c>?:</c> branch. <paramref name="bit"/> MUST be 0 or 1.
+        /// Used by the constant-time range-proof bit split.
+        /// </summary>
+        internal static Scalar FromBit(ulong bit) => new(bit, 0, 0, 0);
+
         public byte[] ToBytes()
         {
             var b = new byte[32];

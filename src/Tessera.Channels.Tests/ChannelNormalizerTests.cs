@@ -36,4 +36,26 @@ public class ChannelNormalizerTests
         var huge = new string('a', 300) + "@bar.com";
         Assert.Throws<ArgumentException>(() => Normalizer.Normalize(ChannelTypes.Email, huge));
     }
+
+    [Fact]
+    public void Normalize_RejectsHandleThatExceedsCapAfterNfkcExpansion()
+    {
+        // U+FDFA (ARABIC LIGATURE SALLALLAHOU ALAYHE WASALLAM) expands to 18 chars under NFKC.
+        // 20 copies = 20 raw chars (under the 256 cap) but 360 after normalization, so the cap must be
+        // re-enforced on the NORMALIZED string, not just the raw input.
+        var expanding = new string('ﷺ', 20);
+        Assert.True(expanding.Length <= 256);                       // passes the raw-length check
+        Assert.True(expanding.Normalize(System.Text.NormalizationForm.FormKC).Length > 256); // but not after NFKC
+        Assert.Throws<ArgumentException>(() => Normalizer.Normalize(ChannelTypes.Email, expanding));
+    }
+
+    [Fact]
+    public void NormalizePhone_MaxLengthDigits_DoesNotOverflow()
+    {
+        // A 256-char all-digit handle sits exactly at the cap; normalization must succeed (the phone
+        // scratch buffer is sized safely) rather than blow the stack.
+        var digits = new string('5', 256);
+        var normalized = Normalizer.Normalize(ChannelTypes.Phone, digits);
+        Assert.Equal("+" + digits, normalized);
+    }
 }

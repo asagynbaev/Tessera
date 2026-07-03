@@ -42,6 +42,22 @@ public sealed class SumsubHttpClient : ISumsubClient
         _clock = clock ?? TimeProvider.System;
     }
 
+    /// <summary>
+    /// An <see cref="HttpClientHandler"/> hardened for this client: <see cref="HttpClientHandler.AllowAutoRedirect"/>
+    /// is <c>false</c>. Sumsub is a single-hop REST API and never legitimately returns a redirect, so
+    /// following one would only replay the long-lived <c>X-App-Token</c> (and the request signature)
+    /// to an attacker-chosen target. The injected <see cref="HttpClient"/> MUST be built on a handler
+    /// configured this way — use <see cref="CreateHardenedHttpClient"/>, or apply the same setting to
+    /// your own handler / <c>IHttpClientFactory</c> registration.
+    /// </summary>
+    public static HttpClientHandler CreateHardenedHandler() => new() { AllowAutoRedirect = false };
+
+    /// <summary>
+    /// Convenience: a new <see cref="HttpClient"/> built on <see cref="CreateHardenedHandler"/> (auto-redirect
+    /// disabled). Pass it to the constructor. The caller owns the returned client's lifetime.
+    /// </summary>
+    public static HttpClient CreateHardenedHttpClient() => new(CreateHardenedHandler());
+
     public async Task<SumsubApplicantReview?> GetApplicantReviewAsync(string applicantId, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrEmpty(applicantId);

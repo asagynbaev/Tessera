@@ -1,3 +1,4 @@
+using Nethereum.Util;
 using Tessera.Chains;
 using Tessera.Chains.Evm.Internal;
 using Tessera.Core;
@@ -76,6 +77,11 @@ public class EvmChainAnchorUnitTests
         Assert.Equal(root, state.AttestationRoot);
         Assert.Equal(7ul, state.RevocationEpoch);
         Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1_700_000_000), state.UpdatedAt);
+        // H-2: owner surfaced as the canonical EIP-55 checksum. Pinned with an EXACT (Ordinal) match,
+        // because the verifier's owner-check compares case-sensitively — a caller must pin the owner in
+        // exactly this checksummed form, so a regression that emitted a lowercase address must fail here.
+        Assert.NotNull(state.Owner);
+        Assert.Equal(AddressUtil.Current.ConvertToChecksumAddress("0x00000000000000000000000000000000000000aa"), state.Owner);
     }
 
     [Theory]

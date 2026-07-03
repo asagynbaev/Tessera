@@ -1,4 +1,3 @@
-using System.Numerics;
 using Tessera.Cryptography.Secp256k1;
 
 namespace Tessera.Cryptography.Bulletproofs
@@ -39,14 +38,19 @@ namespace Tessera.Cryptography.Bulletproofs
             for (int i = 0; i < n; i++) aR[i] = aL[i] - Scalar.One;
 
             var alpha = Scalar.Random();
+            // Accumulate with the constant-time complete addition (Point.AddCt): a secret 0 bit makes
+            // aL[i]*gVec[i] == ∞, and the branchy operator+ would short-circuit on it, leaking the bit.
+            // AddCt yields the same point, so the emitted proof bytes are unchanged.
             var pointA = alpha * hPoint;
-            for (int i = 0; i < n; i++) pointA = pointA + aL[i] * gVec[i] + aR[i] * hVec[i];
+            for (int i = 0; i < n; i++)
+                pointA = Point.AddCt(Point.AddCt(pointA, aL[i] * gVec[i]), aR[i] * hVec[i]);
 
             var sL = RandomScalarVector(n);
             var sR = RandomScalarVector(n);
             var rho = Scalar.Random();
             var pointS = rho * hPoint;
-            for (int i = 0; i < n; i++) pointS = pointS + sL[i] * gVec[i] + sR[i] * hVec[i];
+            for (int i = 0; i < n; i++)
+                pointS = Point.AddCt(Point.AddCt(pointS, sL[i] * gVec[i]), sR[i] * hVec[i]);
 
             var transcript = NewTranscript(V, n);
             transcript.AppendPoint("A", pointA);
@@ -222,14 +226,24 @@ namespace Tessera.Cryptography.Bulletproofs
 
         private static Scalar[] DecomposeBits(Scalar v, int n)
         {
+            // Read bits from the scalar's fixed 4-limb little-endian representation: fixed-width limb
+            // shifts only, no BigInteger and no data-dependent shift/branch on the secret value.
+            var limbs = v.ToLimbsLE(); // 4 little-endian 64-bit limbs, canonical value in [0, n)
             var bits = new Scalar[n];
-            var val = v.Value;
             for (int i = 0; i < n; i++)
             {
-                bits[i] = (val & BigInteger.One) == BigInteger.One ? Scalar.One : Scalar.Zero;
-                val >>= 1;
+                ulong bit = (limbs[i >> 6] >> (i & 63)) & 1UL;
+                // Branchless: FromBit builds the same limb layout for 0 and 1, so the selection does
+                // not leak the secret bit through a ?: branch (the downstream ScalarMul is already CT).
+                bits[i] = Scalar.FromBit(bit);
             }
-            if (val > BigInteger.Zero)
+            // Fold every bit at position >= n into a single overflow accumulator, then reject ONCE
+            // after the full fixed-length scan. No per-bit throw remains to time the value's bit-length
+            // (the loop bounds n..256 depend only on the public parameter n, not the secret).
+            ulong overflow = 0;
+            for (int i = n; i < 256; i++)
+                overflow |= (limbs[i >> 6] >> (i & 63)) & 1UL;
+            if (overflow != 0)
                 throw new ArgumentOutOfRangeException(nameof(v), "Value does not fit in n bits.");
             return bits;
         }

@@ -149,6 +149,54 @@ public class BitcoinAttestationSourceTests
         Assert.True(cp.VerifyBound(balance.Payload.Commitment!, bundle));
     }
 
+    // ── Min-confirmation depth (M-2: flash-fund resistance) ──────────────────────
+
+    // Deep UTXO buried 11 blocks (tip − 10); shallow UTXO only 3 deep (tip − 2). Distinct 12-digit
+    // values so we can assert exactly which one was counted.
+    private const long DeepValue = 500_000_000_001;
+    private const long ShallowValue = 900_000_000_007;
+
+    private static (BitcoinAttestationSource Source, VerifiedBitcoinAddress[] Verified) BuildConfirmationScenario(BitcoinSourceOptions? options)
+    {
+        var deep = new BitcoinUtxo { TxId = TxId1, Vout = 0, ValueSats = DeepValue, BlockHeight = TipHeight - 10, BlockTime = NowUnix - 30L * 86_400 };
+        var shallow = new BitcoinUtxo { TxId = TxId2, Vout = 0, ValueSats = ShallowValue, BlockHeight = TipHeight - 2, BlockTime = NowUnix - 1L * 86_400 };
+        var data = new Dictionary<string, (long, BitcoinUtxo[])>
+        {
+            [AddrA] = (DeepValue + ShallowValue, new[] { deep, shallow }),
+        };
+        var clock = new FakeClock(DateTimeOffset.FromUnixTimeSeconds(NowUnix));
+        var source = new BitcoinAttestationSource(new FakeBitcoinProvider(data), options: options, clock: clock);
+        var verified = new[]
+        {
+            new VerifiedBitcoinAddress { Address = AddrA, Type = BitcoinAddressType.P2wpkh, Network = BitcoinNetwork.Testnet },
+        };
+        return (source, verified);
+    }
+
+    [Fact]
+    public async Task ShallowUtxo_BelowMinConfirmations_IsExcludedFromBalanceAndAge()
+    {
+        // Default MinConfirmations = 6. The 3-deep flash-funded UTXO must NOT be counted; only the
+        // 11-deep one contributes to balance and age.
+        var (source, verified) = BuildConfirmationScenario(options: null);
+        var result = await source.ResolveForAsync(Subject, verified);
+
+        Assert.Equal(DeepValue, result.Facts.TotalSats);
+        Assert.Equal(30, result.Facts.OldestUtxoAgeDays);   // the shallow, 1-day-old UTXO is ignored
+        Assert.Equal(30, result.Facts.HodlAgeDays);          // single counted UTXO ⇒ its own age
+    }
+
+    [Fact]
+    public async Task MinConfirmations_IsConfigurable_LowerThresholdCountsShallowUtxo()
+    {
+        // With MinConfirmations = 1, the 3-deep UTXO is now deep enough and is included.
+        var (source, verified) = BuildConfirmationScenario(new BitcoinSourceOptions { MinConfirmations = 1 });
+        var result = await source.ResolveForAsync(Subject, verified);
+
+        Assert.Equal(DeepValue + ShallowValue, result.Facts.TotalSats);
+        Assert.Equal(30, result.Facts.OldestUtxoAgeDays);   // deep UTXO is still the oldest
+    }
+
     [Fact]
     public async Task NoVerifiedAddresses_EmitsNothing()
     {

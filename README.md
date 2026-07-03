@@ -70,15 +70,16 @@ the `Sagynbaev.Tessera.Sdk` package); namespaces remain `Tessera.*`.
 | `Tessera.Sources.XRoad` | Layer-2 plugin: X-Road government registry → residency / property / encumbrance. |
 | `Tessera.Sources.Bitcoin` | Layer-2 plugin: proven control of Bitcoin addresses (BIP-137 signed challenge) → `btc_control` (address count only) + Pedersen-committed `btc_balance` / `btc_hodl_age`, each bound to a point-in-time chain snapshot (height/hash/time). Esplora (mempool.space / blockstream.info) provider. |
 
-> 🔒 **4.0.0 — the security-hardening release.** On top of the v3.2.0 baseline (authenticated holder
-> presentations, fail-closed revocation, address-bound wallet binding, authenticated on-chain
-> anchors — see [Security](#security)), a multi-round audit (**no Critical findings**) made
-> `Tessera.Cryptography` **constant-time** (limb-based arithmetic + a branchless scalar
-> multiplication, cross-checked against an independent **BouncyCastle** oracle), rejected
-> non-canonical encodings, added controller-authenticated wallet binding, and **removed the legacy
-> duplicate crypto stack** (breaking). It is still from-scratch managed code, so an external crypto
-> audit remains recommended. Threat model, findings & limitations:
-> [docs/security-audit-readiness.md](docs/security-audit-readiness.md) ·
+> 🔒 **5.0.0 — security-hardening round 2 (breaking).** On top of the 4.x baseline (constant-time
+> crypto, canonical encodings, controller-authenticated wallet binding, authenticated on-chain
+> anchors — see [Security](#security)), a second full audit + adversarial re-verification (**no
+> Critical findings**) closed a **cross-attribute predicate-substitution** bug (a holder could satisfy
+> an "income ≥ X" requirement with a *different* attestation's commitment), **surfaced the on-chain
+> anchor owner** (`AnchorState.Owner` + `ExpectedAnchorOwner`) so verifiers can detect anchor
+> substitution / squatting, made the **Bulletproofs prover constant-time end to end**, and added
+> single-use presentation nonces + fail-closed offline revocation. Several defaults now fail closed
+> (breaking). Still from-scratch managed code — an external crypto audit remains recommended. Threat
+> model, findings & limitations: [docs/security-audit-readiness.md](docs/security-audit-readiness.md) ·
 > full changelog: [CHANGELOG.md](CHANGELOG.md).
 
 ## Repository layout
@@ -328,9 +329,11 @@ they upgrade.
 
 ## Security
 
-The current release (**4.0.0**) is the security-hardening release — constant-time cryptography,
-canonical encodings, controller-authenticated wallet binding, and removal of the legacy duplicate
-crypto stack — on top of the v3.2.0 baseline. The guarantees that matter at the trust boundary:
+The current release (**5.0.0**) is the second security-hardening release — cross-attribute
+predicate-substitution fix, on-chain anchor-owner checks, an end-to-end constant-time Bulletproofs
+prover, single-use presentation nonces, and fail-closed offline revocation — on top of the 4.x
+baseline (constant-time cryptography, canonical encodings, controller-authenticated wallet binding).
+The guarantees that matter at the trust boundary:
 
 - **Authenticated holder presentations.** A presentation carries the holder's controller
   public key (`PresentationBinding.HolderPublicKey`, 32-byte Ed25519) and a signature over a
@@ -344,9 +347,18 @@ crypto stack — on top of the v3.2.0 baseline. The guarantees that matter at th
 - **Fail-closed revocation + freshness.** When a chain anchor is configured, a presentation
   bound to an epoch older than the chain's current epoch is rejected unconditionally.
   `RequireCurrentRevocationEpoch` additionally demands a reachable anchor and an EXACT match to
-  the current epoch (it no longer silently skips when `ExpectedAnchorRoot` is supplied). A
-  presentation freshness window (`MaxPresentationAge` / `MaxClockSkew`, both authenticated via
-  the signed `CreatedAt`) bounds replay.
+  the current epoch. Offline / cached-root verification no longer silently skips revocation: with no
+  live anchor and no trusted `ExpectedRevocationEpoch`, verification returns `revocation_unverifiable`.
+  An optional `VerifierOptions.DidStore` additionally fails closed when the holder or any issuer DID is
+  revoked. A presentation freshness window (`MaxPresentationAge` / `MaxClockSkew`, both authenticated
+  via the signed `CreatedAt`) bounds replay; an optional `VerifierOptions.NonceStore` makes each
+  presentation single-use (`presentation_replayed`), rejecting an empty session nonce so enabling the
+  store is by itself sufficient replay protection.
+- **Predicate proofs bind to the issuer-signed attestation type.** A `PredicateRequirement` names the
+  source attestation `Type`; the verifier only accepts a range proof bound to the commitment of a
+  disclosed attestation whose issuer-signed `Type` matches, and fails closed when `Type` is unset. A
+  holder cannot satisfy an "income ≥ X" requirement with a proof over a *different* attestation's
+  commitment (e.g. a reputation score) — the holder-chosen bundle label is not authoritative.
 - **Address-bound, controller-authenticated wallet binding.** Binding a wallet to a DID proves the
   bound address is controlled by the wallet key via `IWalletControlVerifier` (the default covers
   Solana base58(pubkey) and fails closed on chains it does not understand). `BuildWalletChallenge`
@@ -357,12 +369,16 @@ crypto stack — on top of the v3.2.0 baseline. The guarantees that matter at th
   low-entropy peppers.
 - **Constant-time, malleability-resistant primitives.** `Tessera.Cryptography` secp256k1 is
   constant-time (fixed 4×64-bit limb arithmetic; a fixed-iteration, branchless `Point.ScalarMul`
-  over complete add/double formulas), so the secret scalar does not leak through timing. Point and
+  over complete add/double formulas), so the secret scalar does not leak through timing. The
+  Bulletproofs **prover** is now constant-time end to end too: secret-dependent point accumulation
+  uses the branchless complete-addition `Point.AddCt` (a 0 bit no longer short-circuits on infinity),
+  and the range-proof bit split reads the witness from the scalar's fixed limbs (no `BigInteger`, no
+  data-dependent branch) — so a committed value no longer leaks through the prover's timing. Point and
   proof-scalar deserialization rejects non-canonical encodings (`x ≥ p`, `s ≥ n`) rather than
-  reducing them, closing byte-malleability of commitments/proofs. Both are cross-checked against an
-  independent BouncyCastle oracle. The issuer registry refuses to overwrite an existing issuer's
-  public key, and attestation verification supports an expiry cap (`MaxAttestationAge` /
-  `RequireExpiry`).
+  reducing them, closing byte-malleability of commitments/proofs. All are cross-checked against an
+  independent BouncyCastle oracle (the wire format is unchanged). The issuer registry refuses to
+  overwrite an existing issuer's public key, and attestation verification supports an expiry cap
+  (`MaxAttestationAge` / `RequireExpiry`).
 - **Source ↔ DID binding.** Sumsub KYC requires the applicant `externalUserId` to equal the
   subject DID; X-Road uses server-asserted identifiers verified against the request. Both clients
   require HTTPS.
@@ -372,7 +388,11 @@ crypto stack — on top of the v3.2.0 baseline. The guarantees that matter at th
   `RegistryConfig` PDA (`initialize(admin)` / `deactivate_issuer`); the adapter fails closed on
   RPC errors and checks the owning program + discriminator. Cardano metadata-mode reads
   authenticate the controller (tx input address + embedded controller signature over
-  `did_hash‖root‖epoch`) and the Aiken `issuer_registry` is governance-gated.
+  `did_hash‖root‖epoch`) and the Aiken `issuer_registry` is governance-gated. Reads now surface the
+  on-chain owner (`AnchorState.Owner`); set `VerificationPolicy.ExpectedAnchorOwner` to the DID's real
+  controller and the verifier rejects a substituted / squatted anchor whose owner does not match —
+  essential on Solana and Cardano, where a second anchor for the same `did_hash` can otherwise be
+  planted. The Cardano validator-mode read fails closed on such a conflict rather than picking one.
 - **Soroban Ed25519.** The Stellar `attestation-verifier` was redesigned to Ed25519
   public-key verification with admin `initialize` / `set_issuer`; the trusted issuer key lives in
   contract storage. The HMAC secret is no longer a caller-supplied argument — any `--hmac_key` /
@@ -381,14 +401,19 @@ crypto stack — on top of the v3.2.0 baseline. The guarantees that matter at th
   sealed-bid auction enforces both bounds; the confidential transfer checks Pedersen balance
   conservation (`amount + change == sender balance`) in addition to the range proofs.
 
-Caveats: `Tessera.Cryptography` is now **constant-time** and rejects non-canonical encodings, but it
-is still from-scratch managed code — an external cryptography audit remains recommended, and two
-BREAKING wire-format hardening items (length-prefixed Fiat–Shamir transcript labels; RFC-6962 Merkle
-odd-node handling) plus a type-tagged claim-canonicalization format are deferred. The Anchor (Solana),
-Aiken (Cardano) and Solidity (EVM) contract changes above are source-level: they require the
-respective toolchain build (`anchor build` / `aiken build` + regenerated `plutus.json` / Hardhat
-compile) and redeploy to take effect on a live network. See
-[docs/security-audit-readiness.md](docs/security-audit-readiness.md) for the full threat model.
+Caveats: `Tessera.Cryptography` is now **constant-time** (prover included) and rejects non-canonical
+encodings, but it is still from-scratch managed code — an external cryptography audit remains
+recommended, and two BREAKING wire-format hardening items (length-prefixed Fiat–Shamir transcript
+labels; RFC-6962 Merkle odd-node handling) plus a type-tagged claim-canonicalization format are
+deferred. The anchor owner-check is **opt-in** — set `ExpectedAnchorOwner` on chains without
+globally-unique anchor keys. Two on-chain items are tracked but need a **redeploy** the local
+toolchain can't validate here: a controller-signature-gated / admin-reclaim path for Solana
+registration (today squatting is a per-`did_hash` DoS, not a substitution risk, since the owner is
+checkable), and length-prefixed message framing in the Stellar `attestation-verifier` (the .NET
+adapter does not use the affected path). The Anchor (Solana), Aiken (Cardano) and Solidity (EVM)
+contract changes are source-level: they require the respective toolchain build and redeploy to take
+effect on a live network. See [docs/security-audit-readiness.md](docs/security-audit-readiness.md) for
+the full threat model.
 
 ## Roadmap
 

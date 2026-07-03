@@ -90,7 +90,9 @@ public sealed class BitcoinAttestationSource : IAttestationSource
             };
         }
 
-        var facts = await BitcoinFactCalculator.ComputeAsync(_provider, verified, _clock, ct).ConfigureAwait(false);
+        var facts = await BitcoinFactCalculator
+            .ComputeAsync(_provider, verified, _clock, _options.MinConfirmations, ct)
+            .ConfigureAwait(false);
 
         var drafts = new List<AttestationDraft>();
         var openings = new Dictionary<string, byte[]>(StringComparer.Ordinal);
@@ -185,9 +187,17 @@ public sealed record BitcoinAttestationResult
     public required BitcoinFacts Facts { get; init; }
 }
 
-/// <summary>Validity lifetimes for the Bitcoin attestation types.</summary>
+/// <summary>Validity lifetimes and confirmation policy for the Bitcoin attestation types.</summary>
 public sealed record BitcoinSourceOptions
 {
+    /// <summary>
+    /// Minimum confirmation depth a UTXO must have (relative to the pinned chain-tip snapshot) before
+    /// its value counts toward <c>btc_balance</c> / <c>btc_hodl_age</c>. Defaults to 6 — the customary
+    /// "economically final" depth — so a flash-funded, single-confirmation output cannot be minted
+    /// into a balance attestation and then moved. Values below 1 are treated as 1.
+    /// </summary>
+    public int MinConfirmations { get; init; } = 6;
+
     /// <summary>Lifetime of the <c>btc_control</c> attestation.</summary>
     public TimeSpan ControlValidity { get; init; } = TimeSpan.FromDays(90);
 

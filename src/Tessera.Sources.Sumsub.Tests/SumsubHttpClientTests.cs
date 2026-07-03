@@ -42,6 +42,14 @@ public class SumsubHttpClientTests
     }
 
     [Fact]
+    public void CreateHardenedHandler_DisablesAutoRedirect()
+    {
+        // L-2: following a redirect would replay the long-lived X-App-Token to the redirect target.
+        using var handler = SumsubHttpClient.CreateHardenedHandler();
+        Assert.False(handler.AllowAutoRedirect);
+    }
+
+    [Fact]
     public void MapApplicant_SurfacesExternalUserId()
     {
         using var doc = JsonDocument.Parse(

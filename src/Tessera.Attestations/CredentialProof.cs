@@ -59,15 +59,17 @@ namespace Tessera.Attestations
         }
 
         /// <summary>
-        /// Verify a credential bundle without learning the underlying value.
+        /// Verify a credential bundle against ITS OWN commitment, learning nothing about the value.
         /// </summary>
         /// <remarks>
-        /// This is the <b>unbound</b> check: it confirms the range proof is valid for the bundle's
-        /// own commitment, but NOT that the commitment is the one inside any particular attestation.
-        /// For attestation-bound verification (the sound path used by the verification policy) use
-        /// <see cref="VerifyBound"/>.
+        /// <b>This proves nothing about any attestation.</b> It only confirms the range proof is
+        /// internally valid for the commitment carried inside the SAME bundle — a commitment the holder
+        /// chose. It does NOT bind the proof to any attestation's committed attribute, so a passing
+        /// result here must never be treated as evidence that a specific <em>attested</em> value meets a
+        /// bound. For the sound, attestation-bound check used by the verification policy, use
+        /// <see cref="VerifyBound"/>. Renamed from <c>Verify</c> so the non-binding nature is explicit.
         /// </remarks>
-        public bool Verify(CredentialBundle credential)
+        public bool VerifyAgainstOwnCommitment(CredentialBundle credential)
         {
             if (credential?.RangeProof == null || credential.Commitment == null)
                 return false;
@@ -79,6 +81,18 @@ namespace Tessera.Attestations
             }
             catch { return false; }
         }
+
+        /// <summary>
+        /// Deprecated alias for <see cref="VerifyAgainstOwnCommitment"/>. The name <c>Verify</c> wrongly
+        /// implies it validates an attestation; it does not.
+        /// </summary>
+        /// <remarks>
+        /// Use <see cref="VerifyBound"/> for attestation-bound verification, or
+        /// <see cref="VerifyAgainstOwnCommitment"/> for the explicit unbound self-check.
+        /// </remarks>
+        [Obsolete("Renamed to VerifyAgainstOwnCommitment: this is the UNBOUND self-check and proves " +
+                  "nothing about any attestation. Use VerifyBound for attestation-bound verification.")]
+        public bool Verify(CredentialBundle credential) => VerifyAgainstOwnCommitment(credential);
 
         // ── Attestation-bound predicate proofs ───────────────────────────────
         //

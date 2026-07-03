@@ -36,17 +36,25 @@ public sealed record BitcoinFacts
 }
 
 /// <summary>
-/// Computes <see cref="BitcoinFacts"/> from a provider over a set of verified addresses. Confirmed
-/// balance comes from the address summary; the value-weighted age uses confirmed UTXOs.
+/// Computes <see cref="BitcoinFacts"/> from a provider over a set of verified addresses. Both the
+/// confirmed balance and the value-weighted age are computed over the SAME set of confirmed UTXOs
+/// that are buried at least <c>minConfirmations</c> blocks deep relative to the pinned snapshot.
 /// </summary>
 internal static class BitcoinFactCalculator
 {
     private const long SecondsPerDay = 86_400;
 
+    /// <param name="minConfirmations">
+    /// Minimum confirmation depth a UTXO must have (relative to the pinned snapshot height) to be
+    /// counted. Values below 1 are treated as 1. Defends against flash-funding: an attacker who
+    /// funds an address, takes a single confirmation, mints a <c>btc_balance</c> attestation and
+    /// then moves the coins is defeated because the shallow, not-yet-final output is not counted.
+    /// </param>
     public static async Task<BitcoinFacts> ComputeAsync(
         IBitcoinProvider provider,
         IReadOnlyList<VerifiedBitcoinAddress> verified,
         TimeProvider clock,
+        int minConfirmations,
         CancellationToken ct)
     {
         var now = clock.GetUtcNow();
@@ -55,33 +63,44 @@ internal static class BitcoinFactCalculator
         // so the emitted attestations bind to a single point in time rather than no moment at all.
         var tip = await provider.GetChainTipAsync(ct).ConfigureAwait(false);
 
+        // A confirmed UTXO in the tip block has depth 1; require at least minConfirmations. Balance is
+        // derived from this SAME depth-filtered UTXO set (NOT the address summary, which reports every
+        // confirmed output including 1-conf ones and so cannot be depth-filtered), keeping balance and
+        // age one consistent, flash-fund-resistant snapshot.
+        //
+        // NOTE (out of scope here): this trusts a single provider. A hostile or buggy provider can
+        // still misreport heights/values and thus fabricate these facts; defending that needs
+        // multi-provider quorum, which is not addressed by this filter.
+        var minDepth = minConfirmations < 1 ? 1 : minConfirmations;
+
         long totalSats = 0;
         long oldestAgeDays = 0;
-        long weightedAgeDenominator = 0;                   // Σ confirmed UTXO value (same set as the numerator)
         BigInteger weightedAgeNumerator = BigInteger.Zero; // Σ value·ageDays (exact)
 
         foreach (var addr in verified)
         {
             ct.ThrowIfCancellationRequested();
 
-            var summary = await provider.GetAddressSummaryAsync(addr.Address, ct).ConfigureAwait(false);
-            totalSats = checked(totalSats + summary.ConfirmedSats);
-
             var utxos = await provider.GetUtxosAsync(addr.Address, ct).ConfigureAwait(false);
             foreach (var u in utxos)
             {
+                // depth = snapshotHeight − fundingHeight + 1. A UTXO funded in a block newer than the
+                // pinned tip (provider inconsistency) yields depth ≤ 0 and is excluded — the safe side.
+                var depth = tip.BlockHeight - u.BlockHeight + 1;
+                if (depth < minDepth) continue;
+
+                totalSats = checked(totalSats + u.ValueSats);
                 var ageDays = AgeDays(u.BlockTime, now);
                 weightedAgeNumerator += (BigInteger)u.ValueSats * ageDays;
-                weightedAgeDenominator = checked(weightedAgeDenominator + u.ValueSats);
                 if (ageDays > oldestAgeDays) oldestAgeDays = ageDays;
             }
         }
 
-        // Value-weighted age = Σ(value·age) / Σ(value) over the SAME confirmed-UTXO set, so the
-        // numerator and denominator are always one consistent snapshot (the UTXO sum equals the
-        // summary's confirmed balance on a consistent read). 0 when there are no confirmed UTXOs.
-        long hodlAgeDays = weightedAgeDenominator > 0
-            ? (long)(weightedAgeNumerator / weightedAgeDenominator)
+        // Value-weighted age = Σ(value·age) / Σ(value) over the SAME deep-confirmed-UTXO set (its value
+        // sum IS totalSats), so numerator and denominator are always one consistent snapshot. 0 when
+        // there is no deep-confirmed balance.
+        long hodlAgeDays = totalSats > 0
+            ? (long)(weightedAgeNumerator / totalSats)
             : 0;
 
         return new BitcoinFacts
