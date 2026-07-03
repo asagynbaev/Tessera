@@ -1,25 +1,6 @@
 # Tessera
 
-Privacy-preserving, **chain-agnostic** identity and reputation infrastructure for .NET.
-DIDs, signed attestations, selective disclosure via Merkle bundles, Bulletproof-based
-predicate proofs over committed values, and on-chain anchoring of attestation roots and
-revocation epochs. Plug in any network by implementing `IChainAnchor` — **Solana, Cardano,
-EVM, and Stellar** adapters are included — plus generic building blocks for permissioned EVM
-tokens gated by identity.
-
-> ### ✅ All four chain anchors are validated **live on public testnets**
-> The full adapter ↔ on-chain round-trip (register / update-root / bump-revocation / reads) has
-> been exercised against real networks, not just local nodes:
->
-> | Chain | Network | Live smoke | Deployed anchor |
-> |---|---|---|---|
-> | Solana | devnet | ✅ 5/5 | program `FRHDcMs7MKDi87TPtcRZBovLrb6Kj2Aa1SL5iqvm1nEi` |
-> | EVM | BNB testnet (97) | ✅ 6/6 | `IdentityRegistry` `0xc84D91fD19368886C0b86C8A55DE5c981Cdd31cf` |
-> | Cardano | preprod | ✅ 5/5 | Aiken Plutus V3 `identity-registry` validator |
-> | Stellar | testnet | ✅ 5/5 | contract `CCD5ADZNH5CSULAHJHAQPBULVDDCOUGLS2N33DVS5JP3EBKOOY33VLQJ` |
->
-> Each suite is `[SkippableFact]`-gated on `TESSERA_*` env vars, so it skips on a fresh checkout
-> and runs live when pointed at a funded testnet key. See each chain's `DEPLOYMENT.md`.
+**Privacy-preserving, chain-agnostic identity & compliance infrastructure for .NET.**
 
 [![NuGet](https://img.shields.io/nuget/v/Sagynbaev.Tessera)](https://www.nuget.org/packages/Sagynbaev.Tessera)
 [![NuGet Downloads](https://img.shields.io/nuget/dt/Sagynbaev.Tessera)](https://www.nuget.org/packages/Sagynbaev.Tessera)
@@ -27,7 +8,22 @@ tokens gated by identity.
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4)](https://dotnet.microsoft.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**Website:** <https://tessera-website-sepia.vercel.app/>
+Tessera issues and verifies signed **attestations** bound to decentralized identifiers
+(`did:tessera:…`), lets a holder present them with **selective disclosure** and **Bulletproof
+predicate proofs** over committed values, and **anchors** attestation roots and revocation epochs
+on-chain — without ever writing identity data on-chain. Any network plugs in behind a single
+`IChainAnchor` interface; **Solana, Cardano, EVM, and Stellar** adapters are included, alongside
+building blocks for permissioned EVM tokens gated by identity.
+
+**[Website](https://tessera-website-sepia.vercel.app/)** ·
+**[Architecture](docs/architecture.md)** ·
+**[Security](#security)** ·
+**[Changelog](CHANGELOG.md)**
+
+> **All four chain anchors are validated live on public testnets.** The full adapter ↔ on-chain
+> round-trip (register / update-root / bump-revocation / reads) runs against real networks — Solana
+> devnet, EVM BNB testnet, Cardano preprod, Stellar testnet — not just local nodes. Deployed contract
+> ids are in [Chains](#chains); each suite is `[SkippableFact]`-gated on `TESSERA_*` env vars.
 
 ## What this is for
 
@@ -69,18 +65,6 @@ the `Sagynbaev.Tessera.Sdk` package); namespaces remain `Tessera.*`.
 | `Tessera.Sources.Sumsub` | Layer-2 plugin: Sumsub KYC → `kyc_verified` / `jurisdiction` attestations. |
 | `Tessera.Sources.XRoad` | Layer-2 plugin: X-Road government registry → residency / property / encumbrance. |
 | `Tessera.Sources.Bitcoin` | Layer-2 plugin: proven control of Bitcoin addresses (BIP-137 signed challenge) → `btc_control` (address count only) + Pedersen-committed `btc_balance` / `btc_hodl_age`, each bound to a point-in-time chain snapshot (height/hash/time). Esplora (mempool.space / blockstream.info) provider. |
-
-> 🔒 **5.0.0 — security-hardening round 2 (breaking).** On top of the 4.x baseline (constant-time
-> crypto, canonical encodings, controller-authenticated wallet binding, authenticated on-chain
-> anchors — see [Security](#security)), a second full audit + adversarial re-verification (**no
-> Critical findings**) closed a **cross-attribute predicate-substitution** bug (a holder could satisfy
-> an "income ≥ X" requirement with a *different* attestation's commitment), **surfaced the on-chain
-> anchor owner** (`AnchorState.Owner` + `ExpectedAnchorOwner`) so verifiers can detect anchor
-> substitution / squatting, made the **Bulletproofs prover constant-time end to end**, and added
-> single-use presentation nonces + fail-closed offline revocation. Several defaults now fail closed
-> (breaking). Still from-scratch managed code — an external crypto audit remains recommended. Threat
-> model, findings & limitations: [docs/security-audit-readiness.md](docs/security-audit-readiness.md) ·
-> full changelog: [CHANGELOG.md](CHANGELOG.md).
 
 ## Repository layout
 
@@ -286,6 +270,15 @@ Midnight remains a scaffold.
 | **Stellar** | Adapter complete; **verified live on testnet (5/5)** against a deployed `attestation-anchor` Soroban contract; see [`chains/stellar/DEPLOYMENT.md`](chains/stellar/DEPLOYMENT.md) | [`chains/stellar/`](chains/stellar/) |
 | **Midnight** | Adapter scaffold; Compact contract + tx layer pending (mainnet is live) | [`src/Tessera.Chains.Midnight/`](src/Tessera.Chains.Midnight/) |
 
+Deployed testnet anchors (full adapter ↔ on-chain round-trip exercised live):
+
+| Chain | Network | Live smoke | Deployed anchor |
+|---|---|---|---|
+| Solana | devnet | 5/5 | program `FRHDcMs7MKDi87TPtcRZBovLrb6Kj2Aa1SL5iqvm1nEi` |
+| EVM | BNB testnet (97) | 6/6 | `IdentityRegistry` `0xc84D91fD19368886C0b86C8A55DE5c981Cdd31cf` |
+| Cardano | preprod | 5/5 | Aiken Plutus V3 `identity-registry` validator |
+| Stellar | testnet | 5/5 | contract `CCD5ADZNH5CSULAHJHAQPBULVDDCOUGLS2N33DVS5JP3EBKOOY33VLQJ` |
+
 The Solana adapter speaks to a minimal Anchor program whose four core anchoring instructions are
 `register_did`, `update_root`, `bump_revocation`, `register_issuer` (plus admin-gated
 `initialize` / `deactivate_issuer`). The EVM adapter
@@ -314,10 +307,10 @@ DID + attestations → presentation → policy → allowlist admission → token
 KYC and shows transfers are blocked. See [docs/security-audit-readiness.md](docs/security-audit-readiness.md)
 for the audit dossier and known limitations.
 
-## v2 → v3
+## Migrating from the v2.x monolith
 
-v3 is a breaking cut from the v2.x monolith. v2.x consumers keep working until
-they upgrade.
+The current packages are a breaking cut from the original v2.x monolith. v2.x consumers keep working
+until they upgrade; the type moves are:
 
 | v2 type | v3 replacement |
 |---|---|
