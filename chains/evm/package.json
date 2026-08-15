@@ -17,6 +17,7 @@
     "hardhat": "^2.29.0"
   },
   "overrides": {
+    "adm-zip": "^0.6.0",
     "cookie": "^0.7.0",
     "serialize-javascript": "^7.0.5",
     "tmp": "^0.2.6",
