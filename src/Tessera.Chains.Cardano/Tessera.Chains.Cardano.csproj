@@ -13,7 +13,7 @@
     <PackageReference Include="CardanoSharp.Wallet" Version="5.1.0" />
     <!-- Microsoft BCL CBOR — used for Plutus V3 datum decoding and the Conway witness /
          script-data-hash assembly that CardanoSharp 5.1.0 (Babbage-era) does not emit. -->
-    <PackageReference Include="System.Formats.Cbor" Version="8.0.0" />
+    <PackageReference Include="System.Formats.Cbor" Version="8.0.2" />
     <!-- Pin System.Text.Json to the security-patched 8.0.x, matching the other adapters. -->
     <PackageReference Include="System.Text.Json" Version="8.0.5" />
   </ItemGroup>
