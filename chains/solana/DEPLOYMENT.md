@@ -9,6 +9,11 @@ this file is the proof-of-work record.
 > `declare_id!` / `Anchor.toml` locally at deploy time. The C# client takes the program id from
 > `TESSERA_SOLANA_PROGRAM_ID`, so this record is the single source operators copy that env var from.
 
+> **Toolchain note.** The deployment below was built with Anchor 0.30.1. The program source has
+> since moved to Anchor 1.2.2 (same instructions, accounts and discriminators; dependency security
+> fixes only), so a redeploy from `main` uses the 1.2.2 toolchain listed in
+> [`../../docs/deploying-solana.md`](../../docs/deploying-solana.md).
+
 ## Devnet
 
 | Field | Value |

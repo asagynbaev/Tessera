@@ -10,9 +10,12 @@ End-to-end guide for deploying [`chains/solana/programs/identity-registry/`](../
 
 ## Prerequisites
 
-- **Rust toolchain**: `rustup` with stable Rust ≥ 1.79.
-- **Solana CLI**: `solana --version` ≥ 1.18 ([install instructions](https://docs.solanalabs.com/cli/install)).
-- **Anchor CLI**: `anchor --version` ≥ 0.30 (`avm install 0.30.1 && avm use 0.30.1`).
+- **Rust toolchain**: `rustup` with stable Rust ≥ 1.89 (Anchor 1.2.2's MSRV).
+- **Solana CLI**: Agave 4.x — Anchor 1.2.2's verifiable-build image pins `v4.1.2`
+  ([install instructions](https://docs.anza.xyz/cli/install)).
+- **Anchor CLI**: `anchor --version` = 1.2.2 (`avm install 1.2.2 && avm use 1.2.2`; also pinned in
+  `Anchor.toml` `[toolchain]`). CI builds the program in the official
+  `quay.io/ottersec/anchor:v1.2.2` image.
 - **.NET 8 SDK** (only required for the smoke tests).
 
 ## Quick path — `scripts/deploy-devnet.sh`
