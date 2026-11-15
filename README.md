@@ -368,7 +368,8 @@ until they upgrade; the type moves are:
 
 ## Security
 
-The current release (**5.0.0**) is the second security-hardening release — cross-attribute
+The current release (**5.1.0**) adds `Tessera.Agents` and patches a CBOR denial-of-service dependency
+in the Cardano adapter on top of 5.0.0, the second security-hardening release — cross-attribute
 predicate-substitution fix, on-chain anchor-owner checks, an end-to-end constant-time Bulletproofs
 prover, single-use presentation nonces, and fail-closed offline revocation — on top of the 4.x
 baseline (constant-time cryptography, canonical encodings, controller-authenticated wallet binding).

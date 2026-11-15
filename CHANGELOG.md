@@ -1,6 +1,17 @@
 # Changelog
 
-## [Unreleased]
+## [5.1.0] - 2026-11-15
+
+New `Tessera.Agents` package plus a dependency security fix in `Tessera.Chains.Cardano`. No breaking
+changes; upgrading from 5.0.0 is a drop-in package bump.
+
+### Security
+
+- **`Tessera.Chains.Cardano`: `System.Formats.Cbor` 8.0.0 → 8.0.2** (CVE-2026-118747 /
+  GHSA-vmv3-wvjp-wqpj, .NET denial of service, medium). The 5.0.0 package declared `>= 8.0.0`, and NuGet
+  resolves the lowest matching version, so consumers received the vulnerable build. The adapter decodes
+  CBOR datums read from chain (`DatumCodec`), which anyone can attach to a UTxO, so the fix matters for
+  any service that reads Cardano anchors.
 
 ### Added
 
