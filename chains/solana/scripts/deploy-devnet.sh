@@ -60,8 +60,8 @@ esac
 
 # ── 1. preflight ─────────────────────────────────────────────────────────────
 step "Preflight — checking the Solana/Anchor toolchain"
-command -v solana >/dev/null 2>&1 || die "solana CLI not found on PATH. Install: https://docs.solanalabs.com/cli/install"
-command -v anchor >/dev/null 2>&1 || die "anchor CLI not found on PATH. Install: 'avm install 0.30.1 && avm use 0.30.1' (https://www.anchor-lang.com/docs/installation)"
+command -v solana >/dev/null 2>&1 || die "solana CLI not found on PATH. Install: https://docs.anza.xyz/cli/install"
+command -v anchor >/dev/null 2>&1 || die "anchor CLI not found on PATH. Install: 'avm install 1.2.2 && avm use 1.2.2' (https://www.anchor-lang.com/docs/installation)"
 command -v cargo  >/dev/null 2>&1 || die "cargo (Rust) not found on PATH. Install: https://rustup.rs"
 [ -f "$LIB_RS" ]      || die "cannot find $LIB_RS — run this from inside the repo."
 [ -f "$ANCHOR_TOML" ] || die "cannot find $ANCHOR_TOML — run this from inside the repo."
@@ -128,10 +128,10 @@ grep -nE '^[[:space:]]*identity_registry[[:space:]]*=' "$ANCHOR_TOML" | while re
 # ── 5. build once, with the correct id already in place ───────────────────────
 # --no-idl: the on-chain IDL is not consumed by anything here — the C# client
 # (src/Tessera.Chains.Solana) and scripts/initialize.js both encode the Anchor
-# discriminators + account metas directly. Generating the IDL drives anchor-syn 0.30.1's
-# `proc_macro2::Span::source_file()` path, a nightly API removed from current proc-macro2,
-# which fails the build on the Anchor 0.30.1 / Solana 1.18 toolchain. Skipping it compiles
-# the program cleanly and is sufficient for deploy + the devnet smoke tests.
+# discriminators + account metas directly, so the IDL is skipped to keep the deploy
+# minimal. (Under Anchor 0.30.1 IDL generation also failed outright; since the Anchor
+# 1.2.2 upgrade `--features idl-build` compiles, so dropping this flag is safe if an IDL
+# is ever wanted.)
 step "anchor build (--no-idl)"
 anchor build --no-idl
 

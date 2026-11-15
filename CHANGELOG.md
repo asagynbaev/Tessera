@@ -1,5 +1,22 @@
 # Changelog
 
+## [Unreleased]
+
+### Security
+
+- **Solana program: Anchor 0.30.1 → 1.2.2** (`chains/solana/`). Clears the advisories that came in
+  through `solana-program` 1.18: `borsh` 0.9/0.10 (unsound parsing of zero-sized types), `curve25519-dalek`
+  3.2.1 (timing variability in scalar subtraction) and `rand` 0.7 (unsoundness). Source and dependency
+  change only: instructions, account layouts and discriminators are unchanged, and new Rust tests pin the
+  discriminators the C# client hard-codes. The unchecked `signing_key` account moves from `AccountInfo`
+  to `UncheckedAccount` (same semantics, Anchor 1.x deprecation). The live devnet deployment was built
+  with 0.30.1 and is untouched until the next redeploy. No NuGet package is affected.
+
+### CI
+
+- New `solana-program` job: runs the program's Rust tests and builds it for SBF in the official,
+  digest-pinned Anchor 1.2.2 image. The Solana program previously had no CI coverage.
+
 ## [5.1.0] - 2026-11-15
 
 New `Tessera.Agents` package plus a dependency security fix in `Tessera.Chains.Cardano`. No breaking

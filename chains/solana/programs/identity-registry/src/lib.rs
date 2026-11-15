@@ -275,7 +275,7 @@ pub struct RegisterIssuer<'info> {
     /// CHECK: the public signing key of the issuer; signature verification happens
     /// off-chain when verifying attestations. Trust in this key derives from the admin
     /// gate above — only the registry admin can record it.
-    pub signing_key: AccountInfo<'info>,
+    pub signing_key: UncheckedAccount<'info>,
     /// Registry admin. Must sign and must equal `registry_config.admin` (enforced by the
     /// `has_one = admin` constraint above). This is the C4 fix: issuer registration is no
     /// longer open to any signer.
@@ -333,4 +333,33 @@ pub enum ErrorCode {
     NotAdmin,
     #[msg("Admin pubkey must not be the default/zero key.")]
     ZeroAdmin,
+}
+
+// -- Wire-compatibility tests ----------------------------------------------
+
+/// The C# client (`src/Tessera.Chains.Solana/Internal/AnchorDiscriminator.cs`) and
+/// `scripts/initialize.js` hard-code Anchor's default discriminators
+/// (`sha256("global:<instruction>")[..8]` and `sha256("account:<Account>")[..8]`). These
+/// vectors pin them, so an Anchor upgrade that changes the scheme fails here instead of
+/// silently breaking every off-chain read and write against a redeployed program.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn account_discriminators_match_off_chain_clients() {
+        assert_eq!(RegistryConfig::DISCRIMINATOR, &[23, 118, 10, 246, 173, 231, 243, 156]);
+        assert_eq!(DidAnchor::DISCRIMINATOR, &[48, 85, 93, 135, 24, 53, 16, 93]);
+        assert_eq!(Issuer::DISCRIMINATOR, &[216, 19, 83, 230, 108, 53, 80, 14]);
+    }
+
+    #[test]
+    fn instruction_discriminators_match_off_chain_clients() {
+        assert_eq!(instruction::Initialize::DISCRIMINATOR, &[175, 175, 109, 31, 13, 152, 155, 237]);
+        assert_eq!(instruction::RegisterDid::DISCRIMINATOR, &[83, 145, 243, 215, 189, 3, 25, 225]);
+        assert_eq!(instruction::UpdateRoot::DISCRIMINATOR, &[58, 195, 57, 246, 116, 198, 170, 138]);
+        assert_eq!(instruction::BumpRevocation::DISCRIMINATOR, &[172, 148, 255, 194, 87, 13, 139, 73]);
+        assert_eq!(instruction::RegisterIssuer::DISCRIMINATOR, &[145, 117, 52, 59, 189, 27, 127, 18]);
+        assert_eq!(instruction::DeactivateIssuer::DISCRIMINATOR, &[52, 10, 163, 187, 247, 22, 150, 37]);
+    }
 }
